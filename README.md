@@ -59,3 +59,4 @@ DATABASE_URL = "postgresql://postgres:YOUR_PASSWORD@localhost:5432/highrr_db"
 
 6. Run Server (/backend)
 uvicorn app.main:app --reload
+http://127.0.0.1:8000/docs#/
