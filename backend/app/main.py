@@ -9,6 +9,12 @@ from app.models import job
 from app.api.v1.endpoints import jobs
 from app.models import application
 from app.api.v1.endpoints import applications
+from app.models import interview
+from app.models import conversation
+from app.models import message
+from app.api.v1.endpoints import interviews
+from app.api.v1.endpoints import messages
+from app.api.v1.endpoints import analytics
 
 app = FastAPI()
 
@@ -25,6 +31,9 @@ app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])
 app.include_router(applications.router, prefix="/applications", tags=["Applications"])
+app.include_router(interviews.router, prefix="/interviews", tags=["Interviews"])
+app.include_router(messages.router, tags=["Messages"])
+app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 
 @app.get("/")
 def root():
