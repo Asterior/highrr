@@ -42,7 +42,7 @@ const AppLayout = () => {
   const { isAuthenticated, user } = useStore();
   const isLogin = location.pathname === "/login";
   const isCandidate = user.role === "candidate";
-  const isCandidateRoute = location.pathname.startsWith("/candidate");
+  const isCandidateRoute = location.pathname.startsWith("/candidate/") || location.pathname === "/candidate";
 
   return (
     <>

@@ -5,7 +5,7 @@ import { mockJobs, mockApplications, mockInterviews, mockConversations, currentU
 interface AppState {
   user: CurrentUser;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => boolean;
+  login: (user: CurrentUser) => void;
   logout: () => void;
   updateProfile: (data: Partial<CurrentUser>) => void;
 
@@ -39,21 +39,14 @@ export const useStore = create<AppState>((set, get) => ({
   user: currentUser,
   isAuthenticated: false,
 
-  login: (email: string, password: string) => {
-    const found = mockUsers.find((u) => u.email === email && u.password === password);
-    if (found) {
-      set({ isAuthenticated: true, user: found.user });
-      return true;
-    }
-    // Allow any login for demo purposes
-    const role: UserRole = email.includes("candidate") ? "candidate" : "recruiter";
-    set({
-      isAuthenticated: true,
-      user: { ...currentUser, email, role, name: email.split("@")[0] },
-    });
-    return true;
+  login: (user: CurrentUser) => {
+    set({ isAuthenticated: true, user });
   },
-  logout: () => set({ isAuthenticated: false }),
+
+  logout: () => {
+    localStorage.removeItem("token");
+    set({ isAuthenticated: false, user: currentUser });
+  },
 
   updateProfile: (data) => set((s) => ({ user: { ...s.user, ...data } })),
 
