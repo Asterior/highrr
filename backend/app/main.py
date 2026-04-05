@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.db.session import engine
+from app.db.session import engine, get_db
 from app.db.base import Base
+from fastapi import Depends
+from sqlalchemy.orm import Session
 from app.models import user
 from app.api.v1.endpoints import users
 from app.api.v1.endpoints import auth
@@ -38,3 +40,7 @@ app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 @app.get("/")
 def root():
     return {"message": "Highrr Employer Backend Running 🚀"}
+
+@app.get("/test-db")
+def test_db(db: Session = Depends(get_db)):
+    return {"msg": "DB connected"}
