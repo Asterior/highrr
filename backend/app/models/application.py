@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Float
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Float, Index
 from datetime import datetime
 from app.db.base import Base
 
@@ -7,13 +7,13 @@ class Application(Base):
     __tablename__ = "applications"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
 
     candidate_name = Column(String, nullable=False)
     candidate_email = Column(String, nullable=False)
 
-    status = Column(String, default="applied")
+    status = Column(String, default="applied", index=True)
 
     score = Column(Integer, default=0)
 
@@ -31,5 +31,11 @@ class Application(Base):
     resume_url = Column(String, nullable=True)
     status_history = Column(JSON, default=list)
 
-    applied_at = Column(DateTime, default=datetime.utcnow)
+    applied_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Composite indexes for common queries
+    __table_args__ = (
+        Index('idx_applications_job_id_status', 'job_id', 'status'),
+        Index('idx_applications_user_id_status', 'user_id', 'status'),
+    )

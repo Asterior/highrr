@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { Job, Application, Interview, Conversation, CurrentUser, Message, isValidTransition, PipelineStatus, UserRole } from "@/data/types";
-import { mockApplications, mockInterviews, mockConversations, currentUser, mockUsers } from "@/data/mockData";
-import { getJobs, createJob, updateJob as updateJobAPI, deleteJob as deleteJobAPI } from "@/services/api";
+import { mockInterviews, mockConversations, currentUser, mockUsers } from "@/data/mockData";
+import { getJobs, createJob, updateJob as updateJobAPI, deleteJob as deleteJobAPI, getApplications, updateApplicationStatus as updateApplicationStatusAPI, applyToJob as applyToJobAPI } from "@/services/api";
 
 interface AppState {
   user: CurrentUser;
@@ -17,9 +17,10 @@ interface AppState {
   deleteJob: (id: string) => Promise<void>;
 
   applications: Application[];
-  updateApplicationStatus: (id: string, status: PipelineStatus) => boolean;
+  loadApplications: (filterStatus?: string) => Promise<void>;
+  updateApplicationStatus: (id: string, status: PipelineStatus) => Promise<boolean>;
   updateApplication: (id: string, data: Partial<Application>) => void;
-  applyToJob: (jobId: string) => boolean;
+  applyToJob: (jobId: string) => Promise<boolean>;
   bulkUpdateStatus: (ids: string[], status: PipelineStatus) => number;
 
   interviews: Interview[];
@@ -198,61 +199,150 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  applications: mockApplications,
-  updateApplicationStatus: (id, status) => {
-    const app = get().applications.find((a) => a.id === id);
-    if (!app) return false;
-    if (!isValidTransition(app.status, status)) return false;
-    set((s) => ({
-      applications: s.applications.map((a) =>
-        a.id === id
-          ? {
-              ...a,
-              status,
-              status_history: [...(a.status_history || []), { status, date: new Date().toISOString().split("T")[0] }],
-            }
-          : a
-      ),
-    }));
-    return true;
+  applications: [],
+
+  /**
+   * Load applications from API (filtered by recruiter's jobs)
+   */
+  loadApplications: async (filterStatus?: string) => {
+    try {
+      set({ isLoading: true });
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+      
+      const appData = await getApplications(token, 0, 500, filterStatus);
+      
+      // Convert API response to frontend format
+      const convertedApps: Application[] = appData.map((app: any) => ({
+        id: app.id.toString(),
+        user_id: app.user_id.toString(),
+        job_id: app.job_id.toString(),
+        candidate_name: app.candidate_name,
+        candidate_email: app.candidate_email,
+        status: app.status,
+        score: app.score || 0,
+        assigned_to: app.assigned_to?.toString() || null,
+        notes: app.notes || null,
+        applied_at: app.applied_at,
+        skills: app.skills || [],
+        experience_years: app.experience_years || 0,
+        avatar: app.avatar,
+        role: app.role,
+        location: app.location,
+        phone: app.phone,
+        cgpa: app.cgpa,
+        status_history: app.status_history || [],
+      }));
+      
+      set({ applications: convertedApps });
+    } catch (error) {
+      console.error("Failed to load applications:", error);
+      set({ applications: [] });
+    } finally {
+      set({ isLoading: false });
+    }
   },
+
+  /**
+   * Update application status via API
+   */
+  updateApplicationStatus: async (id, status) => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+      
+      const app = get().applications.find((a) => a.id === id);
+      if (!app) return false;
+      if (!isValidTransition(app.status, status)) return false;
+      
+      // Call API to update status
+      await updateApplicationStatusAPI(id, status, token);
+      
+      // Update local state
+      set((s) => ({
+        applications: s.applications.map((a) =>
+          a.id === id
+            ? {
+                ...a,
+                status,
+                status_history: [...(a.status_history || []), { status, date: new Date().toISOString().split("T")[0] }],
+              }
+            : a
+        ),
+      }));
+      return true;
+    } catch (error) {
+      console.error("Failed to update application status:", error);
+      return false;
+    }
+  },
+
   updateApplication: (id, data) =>
     set((s) => ({ applications: s.applications.map((a) => (a.id === id ? { ...a, ...data } : a)) })),
 
-  applyToJob: (jobId) => {
-    const user = get().user;
-    const existing = get().applications.find((a) => a.user_id === user.id && a.job_id === jobId);
-    if (existing) return false;
-    const job = get().jobs.find((j) => j.id === jobId);
-    if (!job) return false;
-    const skillMatch = user.skills
-      ? Math.round((user.skills.filter((s) => job.required_skills.some((rs) => rs.toLowerCase() === s.toLowerCase())).length / Math.max(job.required_skills.length, 1)) * 100)
-      : Math.floor(Math.random() * 30) + 60;
-    const newApp: Application = {
-      id: genId("app"),
-      user_id: user.id,
-      job_id: jobId,
-      candidate_name: user.name,
-      candidate_email: user.email,
-      status: "applied",
-      score: Math.min(skillMatch + Math.floor(Math.random() * 10), 100),
-      assigned_to: null,
-      notes: null,
-      applied_at: new Date().toISOString(),
-      skills: user.skills || [],
-      experience_years: user.experience_years || 0,
-      avatar: user.avatar,
-      role: job.title,
-      location: "",
-      phone: user.phone,
-      cgpa: user.cgpa,
-      status_history: [{ status: "applied", date: new Date().toISOString().split("T")[0] }],
-    };
-    set((s) => ({
-      applications: [...s.applications, newApp],
-      jobs: s.jobs.map((j) => (j.id === jobId ? { ...j, application_count: j.application_count + 1 } : j)),
-    }));
-    return true;
+  applyToJob: async (jobId) => {
+    try {
+      const user = get().user;
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+
+      // Check if already applied
+      const existing = get().applications.find((a) => a.user_id === user.id && a.job_id === jobId);
+      if (existing) return false;
+
+      const job = get().jobs.find((j) => j.id === jobId);
+      if (!job) return false;
+
+      // Calculate skill match score
+      const skillMatch = user.skills
+        ? Math.round((user.skills.filter((s) => job.required_skills.some((rs) => rs.toLowerCase() === s.toLowerCase())).length / Math.max(job.required_skills.length, 1)) * 100)
+        : Math.floor(Math.random() * 30) + 60;
+
+      const score = Math.min(skillMatch + Math.floor(Math.random() * 10), 100);
+
+      // Call API to apply to job
+      const response = await applyToJobAPI(jobId, token, {
+        score,
+        skills: user.skills || [],
+        experience_years: user.experience_years || 0,
+        avatar: user.avatar,
+        role: job.title,
+        location: user.location,
+        phone: user.phone,
+        cgpa: user.cgpa,
+      });
+
+      // Add to local state with converted ID (ensure job_id is string for consistency)
+      const newApp: Application = {
+        id: response.id.toString(),
+        user_id: user.id,
+        job_id: String(response.job_id),  // Ensure job_id is stored as string
+        candidate_name: user.name,
+        candidate_email: user.email,
+        status: "applied",
+        score: response.score,
+        assigned_to: null,
+        notes: null,
+        applied_at: response.applied_at || new Date().toISOString(),
+        skills: response.skills || user.skills || [],
+        experience_years: response.experience_years || user.experience_years || 0,
+        avatar: response.avatar || user.avatar,
+        role: response.role || job.title,
+        location: response.location || user.location,
+        phone: response.phone || user.phone,
+        cgpa: response.cgpa || user.cgpa,
+        status_history: [{ status: "applied", date: new Date().toISOString().split("T")[0] }],
+      };
+
+      set((s) => ({
+        applications: [...s.applications, newApp],
+        jobs: s.jobs.map((j) => (j.id === jobId ? { ...j, application_count: j.application_count + 1 } : j)),
+      }));
+      return true;
+    } catch (error) {
+      console.error("Failed to apply to job:", error);
+      return false;
+    }
   },
 
   bulkUpdateStatus: (ids, status) => {
