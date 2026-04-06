@@ -170,3 +170,121 @@ export async function deleteJob(jobId: number | string, token: string) {
 
   return res.json();
 }
+
+// ============ APPLICATION APIs ============
+
+/**
+ * Get applications for recruiter's jobs with pagination and filtering
+ * For recruiters: Only shows applicants to jobs they posted
+ * For admins: Shows all applications
+ * @param token - Auth token
+ * @param skip - Number of records to skip (pagination)
+ * @param limit - Number of records to return
+ * @param status - Filter by application status
+ */
+export async function getApplications(
+  token: string,
+  skip = 0,
+  limit = 100,
+  status?: string
+) {
+  const params = new URLSearchParams();
+  params.append("skip", skip.toString());
+  params.append("limit", limit.toString());
+  if (status) params.append("status", status);
+
+  const res = await fetch(`${BASE_URL}/applications?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to fetch applications");
+  }
+
+  return res.json();
+}
+
+/**
+ * Update application status
+ */
+export async function updateApplicationStatus(
+  applicationId: number | string,
+  status: string,
+  token: string,
+  assignedTo?: number | null,
+  notes?: string | null
+) {
+  const res = await fetch(`${BASE_URL}/applications/${applicationId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      status,
+      assigned_to: assignedTo,
+      notes,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to update application");
+  }
+
+  return res.json();
+}
+
+/**
+ * Apply to a job as a candidate
+ * @param jobId - ID of the job to apply to (string or number)
+ * @param token - Auth token
+ * @param applicationData - Candidate application data (skills, experience, etc.)
+ */
+export async function applyToJob(
+  jobId: number | string,
+  token: string,
+  applicationData: {
+    score?: number;
+    skills?: string[];
+    experience_years?: number;
+    avatar?: string;
+    role?: string;
+    location?: string;
+    phone?: string;
+    cgpa?: number;
+    notes?: string;
+  } = {}
+) {
+  const res = await fetch(`${BASE_URL}/applications`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      job_id: parseInt(String(jobId), 10),  // Convert to integer for backend
+      score: applicationData.score || 0,
+      skills: applicationData.skills || [],
+      experience_years: applicationData.experience_years || 0,
+      avatar: applicationData.avatar,
+      role: applicationData.role,
+      location: applicationData.location,
+      phone: applicationData.phone,
+      cgpa: applicationData.cgpa,
+      notes: applicationData.notes,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to apply to job");
+  }
+
+  return res.json();
+}

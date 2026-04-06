@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, MessageSquare, Eye, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
@@ -7,14 +7,33 @@ import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
 
 const Candidates = () => {
-  const { applications, jobs, updateApplicationStatus } = useStore();
+  const { applications, jobs, loadApplications, updateApplicationStatus, isLoading } = useStore();
   const [search, setSearch] = useState("");
   const [jobFilter, setJobFilter] = useState("All");
   const [skillFilter, setSkillFilter] = useState("All");
   const [expFilter, setExpFilter] = useState("All");
+  const [loadingMessage, setLoadingMessage] = useState("");
 
+  // Load applications from API on component mount
+  useEffect(() => {
+    const loadAppData = async () => {
+      try {
+        setLoadingMessage("Loading candidates...");
+        await loadApplications();
+        setLoadingMessage("");
+      } catch (error) {
+        console.error("Error loading applications:", error);
+        toast({ title: "Error", description: "Failed to load candidates from database", variant: "destructive" });
+        setLoadingMessage("");
+      }
+    };
+    loadAppData();
+  }, [loadApplications]);
+
+  // Get unique skills from applications
   const allSkills = [...new Set(applications.flatMap((a) => a.skills))];
 
+  // Filter candidates based on search and filter criteria
   const filtered = applications.filter((c) => {
     const matchSearch = c.candidate_name.toLowerCase().includes(search.toLowerCase()) || c.role.toLowerCase().includes(search.toLowerCase());
     const matchJob = jobFilter === "All" || c.job_id === jobFilter;
@@ -23,16 +42,44 @@ const Candidates = () => {
     return matchSearch && matchJob && matchSkill && matchExp;
   });
 
-  const handleShortlist = (id: string) => {
-    const success = updateApplicationStatus(id, "shortlisted");
-    if (success) toast({ title: "Shortlisted", description: "Candidate has been shortlisted." });
-    else toast({ title: "Cannot shortlist", variant: "destructive" });
+  const handleShortlist = async (id: string) => {
+    try {
+      const success = await updateApplicationStatus(id, "shortlisted");
+      if (success) {
+        toast({ title: "Shortlisted", description: "Candidate has been shortlisted." });
+      } else {
+        toast({ title: "Cannot shortlist", variant: "destructive" });
+      }
+    } catch (error) {
+      console.error("Error shortlisting candidate:", error);
+      toast({ title: "Error", description: "Failed to shortlist candidate", variant: "destructive" });
+    }
   };
 
-  const handleReject = (id: string) => {
-    const success = updateApplicationStatus(id, "rejected");
-    if (success) toast({ title: "Rejected", variant: "destructive" });
+  const handleReject = async (id: string) => {
+    try {
+      const success = await updateApplicationStatus(id, "rejected");
+      if (success) {
+        toast({ title: "Rejected", variant: "destructive" });
+      }
+    } catch (error) {
+      console.error("Error rejecting candidate:", error);
+      toast({ title: "Error", description: "Failed to reject candidate", variant: "destructive" });
+    }
   };
+
+  if (loadingMessage) {
+    return (
+      <PageLayout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">{loadingMessage}</p>
+          </div>
+        </div>
+      </PageLayout>
+    );
+  }
 
   return (
     <PageLayout>
@@ -88,12 +135,12 @@ const Candidates = () => {
                 <Eye className="w-4 h-4" /> Profile
               </Link>
               {c.status === "applied" && (
-                <button onClick={() => handleShortlist(c.id)} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 gradient-primary text-primary-foreground rounded-xl text-sm font-medium hover-lift">
+                <button onClick={() => handleShortlist(c.id)} disabled={isLoading} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 gradient-primary text-primary-foreground rounded-xl text-sm font-medium hover-lift disabled:opacity-50">
                   <ArrowRight className="w-4 h-4" /> Shortlist
                 </button>
               )}
               {c.status !== "rejected" && c.status !== "selected" && (
-                <button onClick={() => handleReject(c.id)} className="px-3 py-2 bg-muted text-muted-foreground rounded-xl text-sm font-medium hover:bg-destructive hover:text-destructive-foreground transition-colors">
+                <button onClick={() => handleReject(c.id)} disabled={isLoading} className="px-3 py-2 bg-muted text-muted-foreground rounded-xl text-sm font-medium hover:bg-destructive hover:text-destructive-foreground transition-colors disabled:opacity-50">
                   Reject
                 </button>
               )}
@@ -104,6 +151,18 @@ const Candidates = () => {
           </motion.div>
         ))}
       </div>
+
+      {applications.length === 0 && !isLoading && (
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">No candidates found. They will appear here when someone applies to your jobs.</p>
+        </div>
+      )}
+
+      {filtered.length === 0 && applications.length > 0 && !isLoading && (
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">No candidates match your filters. Try adjusting your search criteria.</p>
+        </div>
+      )}
     </PageLayout>
   );
 };

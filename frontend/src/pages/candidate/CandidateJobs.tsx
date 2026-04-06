@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, MapPin, Briefcase, Clock } from "lucide-react";
 import { motion } from "framer-motion";
 import { useStore } from "@/stores/useStore";
@@ -8,12 +8,29 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 
 const CandidateJobs = () => {
-  const { jobs, applications, user, applyToJob } = useStore();
+  const { jobs, applications, user, applyToJob, loadJobs, isLoading } = useStore();
   const [search, setSearch] = useState("");
   const [deptFilter, setDeptFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("All");
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [confirmApply, setConfirmApply] = useState<string | null>(null);
+  const [loadingMessage, setLoadingMessage] = useState("");
+
+  // Load jobs from API on component mount
+  useEffect(() => {
+    const loadJobsData = async () => {
+      try {
+        setLoadingMessage("Loading jobs...");
+        await loadJobs();
+        setLoadingMessage("");
+      } catch (error) {
+        console.error("Error loading jobs:", error);
+        toast({ title: "Error", description: "Failed to load jobs", variant: "destructive" });
+        setLoadingMessage("");
+      }
+    };
+    loadJobsData();
+  }, [loadJobs]);
 
   const activeJobs = jobs.filter((j) => j.status === "Active");
   const departments = ["All", ...new Set(activeJobs.map((j) => j.department))];
@@ -26,18 +43,37 @@ const CandidateJobs = () => {
     return matchSearch && matchDept && matchType;
   });
 
-  const handleApply = () => {
+  const handleApply = async () => {
     if (!confirmApply) return;
-    const success = applyToJob(confirmApply);
-    if (success) {
-      toast({ title: "Application submitted!", description: "Your application has been sent successfully." });
-    } else {
-      toast({ title: "Already applied", description: "You've already applied to this job.", variant: "destructive" });
+    try {
+      const success = await applyToJob(confirmApply);
+      if (success) {
+        toast({ title: "Application submitted!", description: "Your application has been sent successfully." });
+      } else {
+        toast({ title: "Already applied", description: "You've already applied to this job.", variant: "destructive" });
+      }
+    } catch (error) {
+      console.error("Error applying to job:", error);
+      toast({ title: "Error", description: "Failed to submit application", variant: "destructive" });
+    } finally {
+      setConfirmApply(null);
     }
-    setConfirmApply(null);
   };
 
   const viewJob = jobs.find((j) => j.id === selectedJob);
+
+  if (loadingMessage) {
+    return (
+      <PageLayout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">{loadingMessage}</p>
+          </div>
+        </div>
+      </PageLayout>
+    );
+  }
 
   return (
     <PageLayout>
@@ -89,7 +125,7 @@ const CandidateJobs = () => {
                   {applied ? (
                     <span className="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-sm font-semibold">Applied ✓</span>
                   ) : (
-                    <button onClick={() => setConfirmApply(job.id)} className="gradient-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-semibold hover-lift">
+                    <button onClick={() => setConfirmApply(job.id)} disabled={isLoading} className="gradient-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-semibold hover-lift disabled:opacity-50 disabled:cursor-not-allowed">
                       Apply
                     </button>
                   )}

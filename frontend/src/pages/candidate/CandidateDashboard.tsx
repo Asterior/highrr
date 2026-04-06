@@ -1,12 +1,27 @@
 import { Briefcase, FileText, Calendar, TrendingUp } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
+import { useEffect } from "react";
 import { useStore } from "@/stores/useStore";
 import PageLayout from "@/components/PageLayout";
 import MetricCard from "@/components/MetricCard";
+import { toast } from "@/hooks/use-toast";
 
 const CandidateDashboard = () => {
-  const { user, applications, interviews } = useStore();
+  const { user, applications, interviews, loadJobs } = useStore();
+
+  // Load jobs from API on component mount
+  useEffect(() => {
+    const loadJobsData = async () => {
+      try {
+        await loadJobs();
+      } catch (error) {
+        console.error("Error loading jobs:", error);
+        toast({ title: "Error", description: "Failed to load jobs", variant: "destructive" });
+      }
+    };
+    loadJobsData();
+  }, [loadJobs]);
 
   const myApps = applications.filter((a) => a.user_id === user.id);
   const myInterviews = interviews.filter((i) =>
