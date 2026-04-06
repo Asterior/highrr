@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON, Index
 from datetime import datetime
 from app.db.base import Base
 
@@ -22,16 +22,23 @@ class Job(Base):
     experience_required = Column(String)
 
     # Status
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True, index=True)
 
     # Ownership
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
 
     # Recruitment metadata
     application_count = Column(Integer, default=0)
-    department = Column(String, nullable=True)
-    status = Column(String, default="Active")
+    department = Column(String, nullable=True, index=True)
+    status = Column(String, default="Active", index=True)
 
     # Tracking
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Composite indexes for common queries
+    __table_args__ = (
+        Index('idx_jobs_is_active_created_at', 'is_active', 'created_at', postgresql_using='btree'),
+        Index('idx_jobs_department_status', 'department', 'status'),
+        Index('idx_jobs_created_by', 'created_by'),
+    )
