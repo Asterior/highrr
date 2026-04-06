@@ -30,33 +30,39 @@ This is the backend system for the Highrr Employer platform built using FastAPI 
 ```bash
 git clone https://github.com/YOUR_USERNAME/highrr-employer.git
 cd highrr-employer/backend
+```
 
-2. Create Virtual Environment (/backend)
-python -m venv venv
-venv\Scripts\activate
-3. Install Dependencies
-pip install fastapi uvicorn sqlalchemy psycopg2-binary passlib[bcrypt] python-jose
-4. Create Database (PostgreSQL)
+### 2. Create virtual environment
 
-Open Command Prompt and enter PostgreSQL:
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
 
-psql -U postgres
+### 3. Install dependencies
 
-Then create database:
+```bash
+pip install -r requirements.txt
+```
 
-CREATE DATABASE highrr_db;
-5. Configure Database
+### 4. Configure database URL
 
-Go to:
+Create `backend/.env` with:
 
-app/db/session.py
+```env
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/highrr_db
+```
 
-Update:
+For Supabase pooler, use your project connection string.
 
-DATABASE_URL = "postgresql://postgres:YOUR_PASSWORD@localhost:5432/highrr_db"
+### 5. Run backend
 
-(Replace YOUR_PASSWORD with your PostgreSQL password)
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-6. Run Server (/backend)
-uvicorn app.main:app --reload
-http://127.0.0.1:8000/docs#/
+Swagger docs:
+
+```text
+http://127.0.0.1:8000/docs
+```

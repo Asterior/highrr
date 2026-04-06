@@ -1,5 +1,6 @@
 # ================= BACKEND (PYTHON / FASTAPI) =================
 venv/
+.venv/
 __pycache__/
 *.pyc
 .env
