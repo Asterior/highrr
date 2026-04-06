@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 
 const JobCreate = () => {
   const navigate = useNavigate();
-  const { addJob } = useStore();
+  const { addJob, isLoading } = useStore();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [form, setForm] = useState({
     title: "",
@@ -28,26 +29,35 @@ const JobCreate = () => {
   const addCustomField = () => setCustomFields([...customFields, { label: "", value: "" }]);
   const removeCustomField = (idx: number) => setCustomFields(customFields.filter((_, i) => i !== idx));
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim() || !form.description.trim()) {
       toast({ title: "Missing required fields", description: "Title and description are required.", variant: "destructive" });
       return;
     }
-    addJob({
-      title: form.title,
-      description: form.description,
-      location: form.location,
-      salary: form.salary,
-      department: form.department,
-      job_type: form.job_type,
-      required_skills: form.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
-      experience_required: form.experience_required,
-      is_active: form.status === "Active",
-      status: form.status,
-    });
-    toast({ title: "Job created!", description: `${form.title} has been posted.` });
-    navigate("/jobs");
+    
+    try {
+      setIsSubmitting(true);
+      await addJob({
+        title: form.title,
+        description: form.description,
+        location: form.location,
+        salary: form.salary,
+        department: form.department,
+        job_type: form.job_type,
+        required_skills: form.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
+        experience_required: form.experience_required,
+        is_active: form.status === "Active",
+        status: form.status,
+      });
+      toast({ title: "Job created!", description: `${form.title} has been posted.` });
+      navigate("/jobs");
+    } catch (error) {
+      console.error("Failed to create job:", error);
+      toast({ title: "Error", description: "Failed to create job. Please try again.", variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -157,8 +167,10 @@ const JobCreate = () => {
         </motion.div>
 
         <div className="flex gap-3">
-          <Button type="submit" className="gradient-primary text-primary-foreground px-8 py-3 rounded-xl font-semibold hover-lift">Create Job</Button>
-          <Button type="button" variant="outline" onClick={() => navigate("/jobs")} className="rounded-xl">Cancel</Button>
+          <Button type="submit" disabled={isSubmitting || isLoading} className="gradient-primary text-primary-foreground px-8 py-3 rounded-xl font-semibold hover-lift">
+            {isSubmitting ? "Creating..." : "Create Job"}
+          </Button>
+          <Button type="button" variant="outline" onClick={() => navigate("/jobs")} className="rounded-xl" disabled={isSubmitting || isLoading}>Cancel</Button>
         </div>
       </form>
     </PageLayout>

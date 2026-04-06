@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, Plus, MapPin, Users, MoreVertical, Trash2, Edit2, Eye } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
@@ -10,14 +10,31 @@ import { Button } from "@/components/ui/button";
 
 const Jobs = () => {
   const navigate = useNavigate();
-  const { jobs, updateJob, deleteJob } = useStore();
+  const { jobs, loadJobs, updateJob, deleteJob, isLoading } = useStore();
   const [search, setSearch] = useState("");
   const [deptFilter, setDeptFilter] = useState("All");
   const [editingJob, setEditingJob] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [loadingMessage, setLoadingMessage] = useState("");
 
   const [form, setForm] = useState<{ title: string; description: string; location: string; salary: string; department: string; job_type: "full-time" | "intern" | "contract"; required_skills: string; experience_required: string; status: "Active" | "Draft" | "Paused" }>({ title: "", description: "", location: "", salary: "", department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active" });
+
+  // Load jobs from database on component mount
+  useEffect(() => {
+    const loadJobsData = async () => {
+      try {
+        setLoadingMessage("Loading jobs...");
+        await loadJobs();
+        setLoadingMessage("");
+      } catch (error) {
+        console.error("Error loading jobs:", error);
+        toast({ title: "Error", description: "Failed to load jobs from database", variant: "destructive" });
+        setLoadingMessage("");
+      }
+    };
+    loadJobsData();
+  }, [loadJobs]);
 
   const resetForm = () => setForm({ title: "", description: "", location: "", salary: "", department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active" });
 
@@ -36,33 +53,69 @@ const Jobs = () => {
     setMenuOpen(null);
   };
 
-  const handleUpdate = () => {
+  const handleUpdate = async () => {
     if (!editingJob) return;
-    updateJob(editingJob, {
-      title: form.title,
-      description: form.description,
-      location: form.location,
-      salary: form.salary,
-      department: form.department,
-      job_type: form.job_type,
-      required_skills: form.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
-      experience_required: form.experience_required,
-      is_active: form.status === "Active",
-      status: form.status,
-    });
-    toast({ title: "Job updated", description: `${form.title} has been updated.` });
-    setEditingJob(null);
-    resetForm();
+    try {
+      setLoadingMessage("Updating job...");
+      await updateJob(editingJob, {
+        title: form.title,
+        description: form.description,
+        location: form.location,
+        salary: form.salary,
+        department: form.department,
+        job_type: form.job_type,
+        required_skills: form.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
+        experience_required: form.experience_required,
+        is_active: form.status === "Active",
+        status: form.status,
+      });
+      toast({ title: "Job updated", description: `${form.title} has been updated.` });
+      setEditingJob(null);
+      resetForm();
+      setLoadingMessage("");
+    } catch (error) {
+      console.error("Error updating job:", error);
+      toast({ title: "Error", description: "Failed to update job", variant: "destructive" });
+      setLoadingMessage("");
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteConfirm) return;
-    const job = jobs.find((j) => j.id === deleteConfirm);
-    deleteJob(deleteConfirm);
-    toast({ title: "Job deleted", description: `${job?.title} has been removed.`, variant: "destructive" });
-    setDeleteConfirm(null);
-    setMenuOpen(null);
+    try {
+      setLoadingMessage("Deleting job...");
+      const job = jobs.find((j) => j.id === deleteConfirm);
+      await deleteJob(deleteConfirm);
+      toast({ title: "Job deleted", description: `${job?.title} has been removed.`, variant: "destructive" });
+      setDeleteConfirm(null);
+      setMenuOpen(null);
+      setLoadingMessage("");
+    } catch (error: any) {
+      console.error("Error deleting job:", error);
+      const errorMessage = error.message || "Failed to delete job";
+      toast({ 
+        title: "Cannot Delete Job", 
+        description: errorMessage.includes("active application") 
+          ? errorMessage 
+          : "Failed to delete job", 
+        variant: "destructive" 
+      });
+      setLoadingMessage("");
+    }
   };
+
+  if (loadingMessage) {
+    return (
+      <PageLayout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">{loadingMessage}</p>
+          </div>
+        </div>
+      </PageLayout>
+    );
+  }
 
   return (
     <PageLayout>
@@ -127,6 +180,12 @@ const Jobs = () => {
         </AnimatePresence>
       </div>
 
+      {jobs.length === 0 && !isLoading && (
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">No jobs found. Create one to get started!</p>
+        </div>
+      )}
+
       {/* Edit Dialog */}
       <Dialog open={!!editingJob} onOpenChange={() => { setEditingJob(null); resetForm(); }}>
         <DialogContent className="sm:max-w-lg">
@@ -171,7 +230,7 @@ const Jobs = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setEditingJob(null); resetForm(); }}>Cancel</Button>
-            <Button onClick={handleUpdate}>Update</Button>
+            <Button onClick={handleUpdate} disabled={isLoading}>Update</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -180,11 +239,30 @@ const Jobs = () => {
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader><DialogTitle>Delete Job?</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
-          </DialogFooter>
+          {deleteConfirm && jobs.find(j => j.id === deleteConfirm)?.application_count ? (
+            <>
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-4">
+                <p className="text-sm text-destructive font-semibold mb-1">Cannot Delete Job</p>
+                <p className="text-sm text-muted-foreground">
+                  This job has <span className="font-semibold text-destructive">{jobs.find(j => j.id === deleteConfirm)?.application_count}</span> active application(s).
+                </p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Please review or reject all applications before deleting this job.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => setDeleteConfirm(null)}>Close</Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+                <Button variant="destructive" onClick={handleDelete} disabled={isLoading}>Delete</Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </PageLayout>

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { Job, Application, Interview, Conversation, CurrentUser, Message, isValidTransition, PipelineStatus, UserRole } from "@/data/types";
-import { mockJobs, mockApplications, mockInterviews, mockConversations, currentUser, mockUsers } from "@/data/mockData";
+import { mockApplications, mockInterviews, mockConversations, currentUser, mockUsers } from "@/data/mockData";
+import { getJobs, createJob, updateJob as updateJobAPI, deleteJob as deleteJobAPI } from "@/services/api";
 
 interface AppState {
   user: CurrentUser;
@@ -10,9 +11,10 @@ interface AppState {
   updateProfile: (data: Partial<CurrentUser>) => void;
 
   jobs: Job[];
-  addJob: (job: Omit<Job, "id" | "created_at" | "application_count" | "created_by">) => void;
-  updateJob: (id: string, data: Partial<Job>) => void;
-  deleteJob: (id: string) => void;
+  loadJobs: () => Promise<void>;
+  addJob: (job: Omit<Job, "id" | "created_at" | "application_count" | "created_by">) => Promise<void>;
+  updateJob: (id: string, data: Partial<Job>) => Promise<void>;
+  deleteJob: (id: string) => Promise<void>;
 
   applications: Application[];
   updateApplicationStatus: (id: string, status: PipelineStatus) => boolean;
@@ -50,20 +52,151 @@ export const useStore = create<AppState>((set, get) => ({
 
   updateProfile: (data) => set((s) => ({ user: { ...s.user, ...data } })),
 
-  jobs: mockJobs,
-  addJob: (job) => {
-    const newJob: Job = {
-      ...job,
-      id: genId("job"),
-      created_at: new Date().toISOString(),
-      application_count: 0,
-      created_by: get().user.id,
-    };
-    set((s) => ({ jobs: [newJob, ...s.jobs] }));
+  jobs: [],
+  
+  /**
+   * Load jobs from API database
+   */
+  loadJobs: async () => {
+    try {
+      set({ isLoading: true });
+      const token = localStorage.getItem("token");
+      const jobsData = await getJobs(token, 0, 100, true);
+      
+      // Convert API response (with numeric IDs) to frontend format (with string IDs)
+      const convertedJobs: Job[] = jobsData.map((job: any) => ({
+        id: job.id.toString(),
+        title: job.title,
+        description: job.description,
+        location: job.location,
+        salary: job.salary,
+        job_type: job.job_type,
+        required_skills: job.required_skills || [],
+        experience_required: job.experience_required,
+        is_active: job.is_active,
+        created_by: job.created_by.toString(),
+        created_at: job.created_at,
+        application_count: job.application_count || 0,
+        department: job.department || "Engineering",
+        status: job.status || "Active",
+      }));
+      
+      set({ jobs: convertedJobs });
+    } catch (error) {
+      console.error("Failed to load jobs:", error);
+      set({ jobs: [] });
+    } finally {
+      set({ isLoading: false });
+    }
   },
-  updateJob: (id, data) =>
-    set((s) => ({ jobs: s.jobs.map((j) => (j.id === id ? { ...j, ...data } : j)) })),
-  deleteJob: (id) => set((s) => ({ jobs: s.jobs.filter((j) => j.id !== id) })),
+
+  /**
+   * Create a new job via API
+   */
+  addJob: async (job) => {
+    try {
+      set({ isLoading: true });
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+      
+      const newJobData = await createJob(
+        {
+          title: job.title,
+          description: job.description,
+          location: job.location,
+          salary: job.salary,
+          job_type: job.job_type,
+          required_skills: job.required_skills,
+          experience_required: job.experience_required,
+          department: job.department,
+          status: job.status,
+          is_active: job.is_active,
+        },
+        token
+      );
+      
+      // Convert response to frontend format
+      const newJob: Job = {
+        id: newJobData.id.toString(),
+        title: newJobData.title,
+        description: newJobData.description,
+        location: newJobData.location,
+        salary: newJobData.salary,
+        job_type: newJobData.job_type,
+        required_skills: newJobData.required_skills || [],
+        experience_required: newJobData.experience_required,
+        is_active: newJobData.is_active,
+        created_by: newJobData.created_by.toString(),
+        created_at: newJobData.created_at,
+        application_count: newJobData.application_count || 0,
+        department: newJobData.department || "Engineering",
+        status: newJobData.status || "Active",
+      };
+      
+      set((s) => ({ jobs: [newJob, ...s.jobs] }));
+    } catch (error) {
+      console.error("Failed to create job:", error);
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  /**
+   * Update an existing job via API
+   */
+  updateJob: async (id, data) => {
+    try {
+      set({ isLoading: true });
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+      
+      const updatePayload: any = {};
+      if (data.title !== undefined) updatePayload.title = data.title;
+      if (data.description !== undefined) updatePayload.description = data.description;
+      if (data.location !== undefined) updatePayload.location = data.location;
+      if (data.salary !== undefined) updatePayload.salary = data.salary;
+      if (data.job_type !== undefined) updatePayload.job_type = data.job_type;
+      if (data.required_skills !== undefined) updatePayload.required_skills = data.required_skills;
+      if (data.experience_required !== undefined) updatePayload.experience_required = data.experience_required;
+      if (data.department !== undefined) updatePayload.department = data.department;
+      if (data.status !== undefined) updatePayload.status = data.status;
+      if (data.is_active !== undefined) updatePayload.is_active = data.is_active;
+      
+      await updateJobAPI(id, updatePayload, token);
+      
+      // Update local state
+      set((s) => ({
+        jobs: s.jobs.map((j) => (j.id === id ? { ...j, ...data } : j)),
+      }));
+    } catch (error) {
+      console.error("Failed to update job:", error);
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  /**
+   * Delete a job via API
+   */
+  deleteJob: async (id) => {
+    try {
+      set({ isLoading: true });
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+      
+      await deleteJobAPI(id, token);
+      
+      // Remove from local state
+      set((s) => ({ jobs: s.jobs.filter((j) => j.id !== id) }));
+    } catch (error) {
+      console.error("Failed to delete job:", error);
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
 
   applications: mockApplications,
   updateApplicationStatus: (id, status) => {
