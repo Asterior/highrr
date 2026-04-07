@@ -31,9 +31,6 @@ class Application(Base):
     resume_url = Column(String, nullable=True)
     status_history = Column(JSON, default=list)
 
-    candidate_profile_id = Column(Integer, ForeignKey("candidate_profiles.id"), nullable=True, index=True)
-    candidate_profile = relationship("CandidateProfile", back_populates="applications")
-
     applied_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

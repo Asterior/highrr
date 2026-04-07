@@ -62,15 +62,30 @@ def schedule_interview(
 
 @router.get("/me", response_model=list[InterviewResponse])
 def get_my_interviews(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    if current_user.role != "candidate":
-        raise HTTPException(status_code=403, detail="Only candidates can access this endpoint")
-
-    return (
-        db.query(Interview)
-        .join(Application, Interview.application_id == Application.id)
-        .filter(Application.user_id == current_user.id)
-        .all()
-    )
+    if current_user.role == "candidate":
+        # Candidates see interviews for their applications
+        return (
+            db.query(Interview)
+            .join(Application, Interview.application_id == Application.id)
+            .filter(Application.user_id == current_user.id)
+            .all()
+        )
+    elif current_user.role == "recruiter":
+        # Recruiters see interviews for applicants to their jobs
+        recruiter_job_ids = db.query(Job.id).filter(
+            Job.created_by == current_user.id
+        ).subquery()
+        return (
+            db.query(Interview)
+            .join(Application, Interview.application_id == Application.id)
+            .filter(Application.job_id.in_(recruiter_job_ids))
+            .all()
+        )
+    elif current_user.role == "admin":
+        # Admins see all interviews
+        return db.query(Interview).all()
+    else:
+        raise HTTPException(status_code=403, detail="Not authorized")
 
 
 @router.put("/{interview_id}", response_model=InterviewResponse)
