@@ -7,6 +7,7 @@ import { useStore } from "@/stores/useStore";
 const navItems = [
   { label: "Jobs", path: "/jobs" },
   { label: "Candidates", path: "/candidates" },
+  { label: "Shortlisted", path: "/shortlisted" },
   { label: "Pipeline", path: "/pipeline" },
   { label: "Interviews", path: "/interviews" },
   { label: "Messages", path: "/messages" },

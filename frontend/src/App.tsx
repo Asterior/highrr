@@ -13,6 +13,7 @@ import JobCreate from "@/pages/JobCreate";
 import JobDetails from "@/pages/JobDetails";
 import Candidates from "@/pages/Candidates";
 import CandidateProfile from "@/pages/CandidateProfile";
+import ShortlistedCandidates from "@/pages/ShortlistedCandidates";
 import Pipeline from "@/pages/Pipeline";
 import Interviews from "@/pages/Interviews";
 import Messages from "@/pages/Messages";
@@ -24,6 +25,7 @@ import NotFound from "@/pages/NotFound";
 import CandidateDashboard from "@/pages/candidate/CandidateDashboard";
 import CandidateJobs from "@/pages/candidate/CandidateJobs";
 import CandidateApplications from "@/pages/candidate/CandidateApplications";
+import CandidateShortlisted from "@/pages/candidate/CandidateShortlisted";
 import CandidateProfilePage from "@/pages/candidate/CandidateProfilePage";
 import ResumeBuilder from "@/pages/candidate/ResumeBuilder";
 import ATSScore from "@/pages/candidate/ATSScore";
@@ -58,6 +60,7 @@ const AppLayout = () => {
           <Route path="/jobs/:id" element={<ProtectedRoute><JobDetails /></ProtectedRoute>} />
           <Route path="/candidates" element={<ProtectedRoute><Candidates /></ProtectedRoute>} />
           <Route path="/candidates/:id" element={<ProtectedRoute><CandidateProfile /></ProtectedRoute>} />
+          <Route path="/shortlisted" element={<ProtectedRoute><ShortlistedCandidates /></ProtectedRoute>} />
           <Route path="/pipeline" element={<ProtectedRoute><Pipeline /></ProtectedRoute>} />
           <Route path="/interviews" element={<ProtectedRoute><Interviews /></ProtectedRoute>} />
           <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
@@ -67,6 +70,7 @@ const AppLayout = () => {
           <Route path="/candidate" element={<ProtectedRoute><CandidateDashboard /></ProtectedRoute>} />
           <Route path="/candidate/jobs" element={<ProtectedRoute><CandidateJobs /></ProtectedRoute>} />
           <Route path="/candidate/applications" element={<ProtectedRoute><CandidateApplications /></ProtectedRoute>} />
+          <Route path="/candidate/shortlisted" element={<ProtectedRoute><CandidateShortlisted /></ProtectedRoute>} />
           <Route path="/candidate/profile" element={<ProtectedRoute><CandidateProfilePage /></ProtectedRoute>} />
           <Route path="/candidate/resume" element={<ProtectedRoute><ResumeBuilder /></ProtectedRoute>} />
           <Route path="/candidate/ats-score" element={<ProtectedRoute><ATSScore /></ProtectedRoute>} />

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, MessageSquare, Eye, ArrowRight } from "lucide-react";
+import { Search, MessageSquare, Eye, ArrowRight, CalendarClock } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useStore } from "@/stores/useStore";
@@ -68,6 +68,8 @@ const Candidates = () => {
     }
   };
 
+  const statusLabel = (status: string) => (status === "selected" ? "hired" : status);
+
   if (loadingMessage) {
     return (
       <PageLayout>
@@ -83,8 +85,15 @@ const Candidates = () => {
 
   return (
     <PageLayout>
-      <h1 className="text-3xl font-bold text-foreground">Candidates</h1>
-      <p className="text-muted-foreground mt-1">{applications.length} candidates in pipeline</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Candidates</h1>
+          <p className="text-muted-foreground mt-1">{applications.length} candidates in pipeline</p>
+        </div>
+        <Link to="/shortlisted" className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 transition-opacity">
+          <CalendarClock className="w-4 h-4" /> Open shortlist workspace
+        </Link>
+      </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <div className="flex-1 min-w-[200px] flex items-center gap-2 bg-muted rounded-xl px-4 py-2.5">
@@ -122,7 +131,7 @@ const Candidates = () => {
               <div className="px-2.5 py-1 rounded-full bg-secondary text-accent-foreground text-xs font-bold">{c.score}%</div>
             </div>
             <div className="flex items-center gap-2 mt-3">
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${c.status === "selected" ? "bg-emerald-50 text-emerald-600" : c.status === "rejected" ? "bg-red-50 text-red-500" : c.status === "interview" ? "bg-blue-50 text-blue-600" : "bg-secondary text-accent-foreground"}`}>{c.status}</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${c.status === "selected" ? "bg-emerald-50 text-emerald-600" : c.status === "rejected" ? "bg-red-50 text-red-500" : c.status === "interview" ? "bg-blue-50 text-blue-600" : "bg-secondary text-accent-foreground"}`}>{statusLabel(c.status)}</span>
               <span className="text-xs text-muted-foreground">{c.experience_years}y exp</span>
               {c.phone && <span className="text-xs text-muted-foreground">{c.phone}</span>}
               {c.cgpa && <span className="text-xs text-muted-foreground">CGPA: {c.cgpa}</span>}

@@ -1,7 +1,21 @@
 import { create } from "zustand";
 import { Job, Application, Interview, Conversation, CurrentUser, Message, isValidTransition, PipelineStatus, UserRole } from "@/data/types";
-import { mockInterviews, mockConversations, currentUser, mockUsers } from "@/data/mockData";
-import { getJobs, createJob, updateJob as updateJobAPI, deleteJob as deleteJobAPI, getApplications, updateApplicationStatus as updateApplicationStatusAPI, applyToJob as applyToJobAPI } from "@/services/api";
+import { mockConversations, currentUser } from "@/data/mockData";
+import {
+  getJobs,
+  createJob,
+  updateJob as updateJobAPI,
+  deleteJob as deleteJobAPI,
+  getApplications,
+  updateApplicationStatus as updateApplicationStatusAPI,
+  applyToJob as applyToJobAPI,
+  getInterviews,
+  createInterview as createInterviewAPI,
+  updateInterview as updateInterviewAPI,
+  deleteInterview as deleteInterviewAPI,
+  respondToInterview as respondToInterviewAPI,
+  captureInterviewFeedback as captureInterviewFeedbackAPI,
+} from "@/services/api";
 
 interface AppState {
   user: CurrentUser;
@@ -24,6 +38,21 @@ interface AppState {
   bulkUpdateStatus: (ids: string[], status: PipelineStatus) => number;
 
   interviews: Interview[];
+  loadInterviews: (mine?: boolean) => Promise<void>;
+  scheduleInterview: (data: {
+    application_id: string;
+    interviewer_id: string;
+    scheduled_at: string;
+    interview_type: Interview["interview_type"];
+    mode?: "online" | "offline";
+    timezone?: string | null;
+    notes?: string | null;
+    meeting_link?: string | null;
+    location?: string | null;
+  }) => Promise<boolean>;
+  updateInterviewRemote: (id: string, data: Partial<Interview>) => Promise<boolean>;
+  respondToInterview: (id: string, action: "confirm" | "reschedule" | "cancel", data?: { reason?: string; preferred_slots?: string[]; preferred_timezone?: string }) => Promise<boolean>;
+  captureInterviewFeedback: (id: string, data: { rating?: number; notes?: string; decision?: "hire" | "reject" | "hold" }) => Promise<boolean>;
   addInterview: (interview: Omit<Interview, "id">) => void;
   updateInterview: (id: string, data: Partial<Interview>) => void;
   deleteInterview: (id: string) => void;
@@ -231,6 +260,7 @@ export const useStore = create<AppState>((set, get) => ({
         location: app.location,
         phone: app.phone,
         cgpa: app.cgpa,
+        resume_url: app.resume_url,
         status_history: app.status_history || [],
       }));
       
@@ -351,6 +381,7 @@ export const useStore = create<AppState>((set, get) => ({
         location: response.location || user.location,
         phone: response.phone || user.phone,
         cgpa: response.cgpa || user.cgpa,
+        resume_url: response.resume_url || user.resume_url,
         status_history: [{ status: "applied", date: new Date().toISOString().split("T")[0] }],
       };
 
@@ -383,7 +414,180 @@ export const useStore = create<AppState>((set, get) => ({
     return count;
   },
 
-  interviews: mockInterviews,
+  interviews: [],
+  loadInterviews: async (mine = false) => {
+    try {
+      set({ isLoading: true });
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+
+      const interviewData = await getInterviews(token, mine);
+      const convertedInterviews: Interview[] = interviewData.map((interview: any) => ({
+        id: interview.id.toString(),
+        application_id: interview.application_id.toString(),
+        candidate_name: interview.candidate_name,
+        job_title: interview.job_title,
+        interviewer_id: interview.interviewer_id.toString(),
+        interviewer_name: interview.interviewer_name,
+        scheduled_at: interview.scheduled_at,
+        status: interview.status,
+        interview_type: interview.interview_type,
+        mode: interview.mode,
+        timezone: interview.timezone,
+        notes: interview.notes || "",
+        meeting_link: interview.meeting_link,
+        location: interview.location,
+        candidate_response_status: interview.candidate_response_status,
+        candidate_response_reason: interview.candidate_response_reason,
+        candidate_preferred_slots: interview.candidate_preferred_slots || [],
+        feedback_rating: interview.feedback_rating,
+        feedback_notes: interview.feedback_notes,
+        recruiter_decision: interview.recruiter_decision,
+        status_history: interview.status_history || [],
+      }));
+
+      set({ interviews: convertedInterviews });
+    } catch (error) {
+      console.error("Failed to load interviews:", error);
+      set({ interviews: [] });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+  scheduleInterview: async (data) => {
+    try {
+      set({ isLoading: true });
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+
+      const created = await createInterviewAPI({
+        application_id: data.application_id,
+        interviewer_id: data.interviewer_id,
+        scheduled_at: data.scheduled_at,
+        interview_type: data.interview_type,
+        mode: data.mode,
+        timezone: data.timezone,
+        notes: data.notes,
+        meeting_link: data.meeting_link,
+        location: data.location,
+      }, token);
+
+      const newInterview: Interview = {
+        id: created.id.toString(),
+        application_id: created.application_id.toString(),
+        candidate_name: created.candidate_name,
+        job_title: created.job_title,
+        interviewer_id: created.interviewer_id.toString(),
+        interviewer_name: created.interviewer_name,
+        scheduled_at: created.scheduled_at,
+        status: created.status,
+        interview_type: created.interview_type,
+        mode: created.mode,
+        timezone: created.timezone,
+        notes: created.notes || "",
+        meeting_link: created.meeting_link,
+        location: created.location,
+        candidate_response_status: created.candidate_response_status,
+        candidate_response_reason: created.candidate_response_reason,
+        candidate_preferred_slots: created.candidate_preferred_slots || [],
+        feedback_rating: created.feedback_rating,
+        feedback_notes: created.feedback_notes,
+        recruiter_decision: created.recruiter_decision,
+        status_history: created.status_history || [],
+      };
+
+      set((s) => ({ interviews: [newInterview, ...s.interviews] }));
+      return true;
+    } catch (error) {
+      console.error("Failed to schedule interview:", error);
+      return false;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+  updateInterviewRemote: async (id, data) => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+
+      await updateInterviewAPI(id, data, token);
+      set((s) => ({ interviews: s.interviews.map((i) => (i.id === id ? { ...i, ...data } : i)) }));
+      return true;
+    } catch (error) {
+      console.error("Failed to update interview:", error);
+      return false;
+    }
+  },
+  respondToInterview: async (id, action, data) => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+
+      const updated = await respondToInterviewAPI(id, token, {
+        action,
+        reason: data?.reason,
+        preferred_slots: data?.preferred_slots,
+        preferred_timezone: data?.preferred_timezone,
+      });
+
+      set((s) => ({ interviews: s.interviews.map((i) => (i.id === id ? {
+        ...i,
+        status: updated.status,
+        mode: updated.mode,
+        timezone: updated.timezone,
+        notes: updated.notes || i.notes,
+        meeting_link: updated.meeting_link,
+        location: updated.location,
+        candidate_response_status: updated.candidate_response_status,
+        candidate_response_reason: updated.candidate_response_reason,
+        candidate_preferred_slots: updated.candidate_preferred_slots || [],
+        status_history: updated.status_history || i.status_history,
+      } : i)) }));
+      return true;
+    } catch (error) {
+      console.error("Failed to update candidate response:", error);
+      return false;
+    }
+  },
+  captureInterviewFeedback: async (id, data) => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+
+      const updated = await captureInterviewFeedbackAPI(id, token, data);
+      set((s) => ({
+        interviews: s.interviews.map((i) => (i.id === id ? {
+          ...i,
+          status: updated.status,
+          feedback_rating: updated.feedback_rating,
+          feedback_notes: updated.feedback_notes,
+          recruiter_decision: updated.recruiter_decision,
+          status_history: updated.status_history || i.status_history,
+        } : i)),
+        applications: s.applications.map((a) => {
+          if (a.id !== String(updated.application_id)) return a;
+
+          const mappedStatus = updated.recruiter_decision === "hire"
+            ? "selected"
+            : updated.recruiter_decision === "reject"
+            ? "rejected"
+            : "interview";
+
+          return {
+            ...a,
+            status: mappedStatus,
+            status_history: [...(a.status_history || []), { status: mappedStatus, date: new Date().toISOString() }],
+          };
+        }),
+      }));
+
+      await get().loadApplications();
+      return true;
+    } catch (error) {
+      console.error("Failed to capture interview feedback:", error);
+      return false;
+    }
+  },
   addInterview: (interview) => {
     set((s) => ({ interviews: [...s.interviews, { ...interview, id: genId("int") }] }));
   },

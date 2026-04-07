@@ -72,7 +72,7 @@ export async function getJobs(
   const headers: HeadersInit = { "Content-Type": "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${BASE_URL}/jobs?${params.toString()}`, {
+  const res = await fetch(`${BASE_URL}/jobs/?${params.toString()}`, {
     method: "GET",
     headers,
   });
@@ -109,7 +109,7 @@ export async function getJobById(jobId: number | string, token?: string) {
  * Create a new job
  */
 export async function createJob(jobData: JobPayload, token: string) {
-  const res = await fetch(`${BASE_URL}/jobs`, {
+  const res = await fetch(`${BASE_URL}/jobs/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -193,7 +193,7 @@ export async function getApplications(
   params.append("limit", limit.toString());
   if (status) params.append("status", status);
 
-  const res = await fetch(`${BASE_URL}/applications?${params.toString()}`, {
+  const res = await fetch(`${BASE_URL}/applications/?${params.toString()}`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
@@ -261,7 +261,7 @@ export async function applyToJob(
     notes?: string;
   } = {}
 ) {
-  const res = await fetch(`${BASE_URL}/applications`, {
+  const res = await fetch(`${BASE_URL}/applications/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -284,6 +284,139 @@ export async function applyToJob(
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.detail || "Failed to apply to job");
+  }
+
+  return res.json();
+}
+
+// ============ INTERVIEW APIs ============
+
+interface InterviewPayload {
+  application_id: number | string;
+  interviewer_id: number | string;
+  scheduled_at: string;
+  interview_type: string;
+  mode?: string;
+  timezone?: string | null;
+  notes?: string | null;
+  meeting_link?: string | null;
+  location?: string | null;
+}
+
+export async function getInterviews(token: string, mine = false) {
+  const endpoint = mine ? "/interviews/me" : "/interviews/";
+  const res = await fetch(`${BASE_URL}${endpoint}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to fetch interviews");
+  }
+
+  return res.json();
+}
+
+export async function createInterview(payload: InterviewPayload, token: string) {
+  const res = await fetch(`${BASE_URL}/interviews/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to schedule interview");
+  }
+
+  return res.json();
+}
+
+export async function updateInterview(
+  interviewId: number | string,
+  payload: Record<string, unknown>,
+  token: string,
+) {
+  const res = await fetch(`${BASE_URL}/interviews/${interviewId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to update interview");
+  }
+
+  return res.json();
+}
+
+export async function deleteInterview(interviewId: number | string, token: string) {
+  const res = await fetch(`${BASE_URL}/interviews/${interviewId}`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to delete interview");
+  }
+
+  return res.json();
+}
+
+export async function respondToInterview(
+  interviewId: number | string,
+  token: string,
+  payload: { action: string; reason?: string; preferred_slots?: string[]; preferred_timezone?: string },
+) {
+  const res = await fetch(`${BASE_URL}/interviews/${interviewId}/candidate-response`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to update interview response");
+  }
+
+  return res.json();
+}
+
+export async function captureInterviewFeedback(
+  interviewId: number | string,
+  token: string,
+  payload: { rating?: number; notes?: string; decision?: string },
+) {
+  const res = await fetch(`${BASE_URL}/interviews/${interviewId}/feedback`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to capture interview feedback");
   }
 
   return res.json();
