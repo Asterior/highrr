@@ -8,20 +8,20 @@ import MetricCard from "@/components/MetricCard";
 import { toast } from "@/hooks/use-toast";
 
 const CandidateDashboard = () => {
-  const { user, applications, interviews, loadJobs } = useStore();
+  const { user, applications, interviews, loadJobs, loadApplications } = useStore();
 
-  // Load jobs from API on component mount
+  // Load jobs and applications from API on component mount
   useEffect(() => {
-    const loadJobsData = async () => {
+    const loadData = async () => {
       try {
-        await loadJobs();
+        await Promise.all([loadJobs(), loadApplications()]);
       } catch (error) {
-        console.error("Error loading jobs:", error);
-        toast({ title: "Error", description: "Failed to load jobs", variant: "destructive" });
+        console.error("Error loading data:", error);
+        toast({ title: "Error", description: "Failed to load data", variant: "destructive" });
       }
     };
-    loadJobsData();
-  }, [loadJobs]);
+    loadData();
+  }, [loadJobs, loadApplications]);
 
   const myApps = applications.filter((a) => a.user_id === user.id);
   const myInterviews = interviews.filter((i) =>

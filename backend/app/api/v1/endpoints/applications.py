@@ -96,17 +96,33 @@ def get_applications(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    if current_user.role not in ["admin", "recruiter"]:
-        raise HTTPException(status_code=403, detail="Not authorized")
-
+    """
+    Get applications filtered by user role:
+    - Candidates: Get their own applications only
+    - Recruiters: Get applicants to their posted jobs only
+    - Admins: Get all applications
+    
+    Optimization:
+    - Database-level filtering for better performance
+    - Indexes on job_id, status, user_id for fast queries
+    """
     query = db.query(Application)
-
-    if current_user.role == "recruiter":
+    
+    # Filter by role
+    if current_user.role == "candidate":
+        # Candidates can only see their own applications
+        query = query.filter(Application.user_id == current_user.id)
+    elif current_user.role == "recruiter":
+        # Recruiters can only see applicants to jobs they posted
         recruiter_job_ids = db.query(Job.id).filter(
             Job.created_by == current_user.id
         ).subquery()
         query = query.filter(Application.job_id.in_(recruiter_job_ids))
-
+    elif current_user.role != "admin":
+        # Only candidate, recruiter, and admin are allowed
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Apply status filter
     if status:
         query = query.filter(Application.status == status)
 

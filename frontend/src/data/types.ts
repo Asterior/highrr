@@ -132,11 +132,18 @@ export type PipelineStatus = "applied" | "shortlisted" | "interview" | "selected
 export const PIPELINE_ORDER: PipelineStatus[] = ["applied", "shortlisted", "interview", "selected"];
 
 export const isValidTransition = (from: PipelineStatus, to: PipelineStatus): boolean => {
+  // Can always move to rejected (terminal state)
   if (to === "rejected") return true;
+  
+  // Can't move back from rejected
+  if (from === "rejected") return false;
+  
   const fromIdx = PIPELINE_ORDER.indexOf(from);
   const toIdx = PIPELINE_ORDER.indexOf(to);
   if (fromIdx === -1 || toIdx === -1) return false;
-  return Math.abs(toIdx - fromIdx) <= 1;
+  
+  // Only allow forward moves to adjacent stages (one step forward)
+  return toIdx === fromIdx + 1;
 };
 
 export interface CandidateProfile {

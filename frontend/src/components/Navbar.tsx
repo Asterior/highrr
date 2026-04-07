@@ -5,7 +5,6 @@ import { motion } from "framer-motion";
 import { useStore } from "@/stores/useStore";
 
 const navItems = [
-  { label: "Overview", path: "/" },
   { label: "Jobs", path: "/jobs" },
   { label: "Candidates", path: "/candidates" },
   { label: "Pipeline", path: "/pipeline" },
