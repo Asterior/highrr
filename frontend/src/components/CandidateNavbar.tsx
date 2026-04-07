@@ -8,6 +8,7 @@ const navItems = [
   { label: "Dashboard", path: "/candidate" },
   { label: "Jobs", path: "/candidate/jobs" },
   { label: "Applications", path: "/candidate/applications" },
+  { label: "Shortlisted", path: "/candidate/shortlisted" },
   { label: "Profile", path: "/candidate/profile" },
   { label: "Resume", path: "/candidate/resume" },
   { label: "ATS Score", path: "/candidate/ats-score" },

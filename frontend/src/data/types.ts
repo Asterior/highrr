@@ -47,11 +47,20 @@ export interface Interview {
   interviewer_id: string;
   interviewer_name: string;
   scheduled_at: string;
-  status: "scheduled" | "completed" | "cancelled";
+  status: "scheduled" | "rescheduled" | "completed" | "no-show" | "cancelled";
   interview_type: "technical" | "hr" | "manager";
+  mode?: "online" | "offline";
+  timezone?: string | null;
   notes: string;
   meeting_link?: string;
   location?: string;
+  candidate_response_status?: "pending" | "confirmed" | "reschedule_requested" | "cancelled";
+  candidate_response_reason?: string | null;
+  candidate_preferred_slots?: string[];
+  feedback_rating?: number | null;
+  feedback_notes?: string | null;
+  recruiter_decision?: "hire" | "reject" | "hold" | null;
+  status_history?: { status: string; date: string }[];
 }
 
 export interface Message {

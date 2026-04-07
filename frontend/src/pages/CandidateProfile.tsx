@@ -1,7 +1,9 @@
+import { useEffect, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Mail, Phone, MapPin, Download } from "lucide-react";
+import { ArrowLeft, Mail, Phone, MapPin, Download, Clock3 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useStore } from "@/stores/useStore";
+import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
 
 const skillEvals = [
@@ -20,8 +22,36 @@ const certifications = ["AWS Solutions Architect", "Google Cloud Professional", 
 
 const CandidateProfile = () => {
   const { id } = useParams();
-  const { applications } = useStore();
-  const candidate = applications.find((a) => a.id === id);
+  const { applications, loadApplications, loadJobs, isLoading } = useStore();
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        await Promise.all([loadApplications(), loadJobs()]);
+      } catch (error) {
+        console.error("Failed to load candidate profile data:", error);
+        toast({ title: "Error", description: "Could not load candidate profile.", variant: "destructive" });
+      }
+    };
+    loadData();
+  }, [loadApplications, loadJobs]);
+
+  const candidate = useMemo(() => applications.find((a) => a.id === id), [applications, id]);
+
+  const statusLabel = candidate?.status === "selected" ? "hired" : candidate?.status;
+
+  if (isLoading && !candidate) {
+    return (
+      <PageLayout>
+        <div className="flex items-center justify-center h-80">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">Loading candidate profile...</p>
+          </div>
+        </div>
+      </PageLayout>
+    );
+  }
 
   if (!candidate) {
     return (
@@ -50,17 +80,17 @@ const CandidateProfile = () => {
               <MapPin className="w-3 h-3" /> {candidate.location}
             </div>
             <div className="mt-3 flex items-center gap-2">
-              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${candidate.status === "selected" ? "bg-emerald-50 text-emerald-600" : candidate.status === "rejected" ? "bg-red-50 text-red-500" : "bg-secondary text-accent-foreground"}`}>{candidate.status}</span>
+              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${candidate.status === "selected" ? "bg-emerald-50 text-emerald-600" : candidate.status === "rejected" ? "bg-red-50 text-red-500" : "bg-secondary text-accent-foreground"}`}>{statusLabel}</span>
               <span className="px-2.5 py-1 rounded-full bg-secondary text-accent-foreground text-xs font-bold">{candidate.score}% match</span>
             </div>
             <div className="text-xs text-muted-foreground mt-2">{candidate.experience_years} years experience</div>
             <div className="flex gap-2 mt-5 w-full">
-              <button className="flex-1 flex items-center justify-center gap-1.5 gradient-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-semibold hover-lift">
+              <a href={`mailto:${candidate.candidate_email}`} className="flex-1 flex items-center justify-center gap-1.5 gradient-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-semibold hover-lift">
                 <Mail className="w-4 h-4" /> Email
-              </button>
-              <button className="flex-1 flex items-center justify-center gap-1.5 bg-muted text-muted-foreground px-4 py-2 rounded-xl text-sm font-medium hover:bg-secondary transition-colors">
+              </a>
+              <a href={candidate.resume_url || "#"} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center gap-1.5 bg-muted text-muted-foreground px-4 py-2 rounded-xl text-sm font-medium hover:bg-secondary transition-colors">
                 <Download className="w-4 h-4" /> Resume
-              </button>
+              </a>
             </div>
           </div>
         </div>
@@ -113,6 +143,21 @@ const CandidateProfile = () => {
             <div className="bg-card rounded-2xl border border-border p-6 shadow-card">
               <h2 className="text-lg font-semibold text-foreground mb-3">Notes</h2>
               <p className="text-sm text-muted-foreground">{candidate.notes}</p>
+            </div>
+          )}
+
+          {candidate.status_history && candidate.status_history.length > 0 && (
+            <div className="bg-card rounded-2xl border border-border p-6 shadow-card">
+              <h2 className="text-lg font-semibold text-foreground mb-3">Application Timeline</h2>
+              <div className="space-y-2">
+                {candidate.status_history.map((history, index) => (
+                  <div key={`${history.status}-${index}`} className="flex items-center gap-2 text-sm">
+                    <Clock3 className="w-4 h-4 text-muted-foreground" />
+                    <span className="font-medium text-foreground capitalize">{history.status === "selected" ? "hired" : history.status}</span>
+                    <span className="text-muted-foreground">{new Date(history.date).toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
