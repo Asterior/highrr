@@ -36,7 +36,7 @@ cd highrr-employer/backend
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate
+venv\Scripts\activate
 ```
 
 ### 3. Install dependencies
@@ -58,7 +58,7 @@ For Supabase pooler, use your project connection string.
 ### 5. Run backend
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --reload
 ```
 
 Swagger docs:

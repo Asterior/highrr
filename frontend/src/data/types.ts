@@ -77,19 +77,54 @@ export interface Conversation {
 }
 
 export interface CurrentUser {
-  id: string;
+  id: number;
   name: string;
   email: string;
-  avatar: string;
-  company: string;
-  role: UserRole;
-  phone?: string;
-  skills?: string[];
-  experience_years?: number;
-  cgpa?: number;
+
+  // ✅ Add all missing fields
+  full_name?: string;
+  headline?: string;
   bio?: string;
-  projects?: { name: string; desc: string }[];
-  certifications?: string[];
+  phone?: string;
+
+  city?: string;
+  state?: string;
+  country?: string;
+
+  current_role?: string;
+  current_company?: string;
+
+  experience_years?: number; // already exists
+  total_experience_years?: number;
+
+  notice_period_days?: number;
+
+  current_salary?: string;
+  expected_salary?: string;
+  currency?: string;
+
+  highest_qualification?: string;
+  cgpa?: string;
+
+  availability?: string;
+  willing_to_relocate?: boolean;
+  open_to_remote?: boolean;
+  is_active_job_seeker?: boolean;
+
+  preferred_locations?: string[];
+  preferred_job_types?: string[];
+
+  work_experiences?: any[];
+  educations?: any[];
+  skills?: any[];
+  certifications?: any[];
+  projects?: any[];
+  social_links?: any[];
+  languages?: any[];
+
+  resume_url?: string;
+
+  profile_completion_percentage?: number;
 }
 
 export type PipelineStatus = "applied" | "shortlisted" | "interview" | "selected" | "rejected";
@@ -103,3 +138,52 @@ export const isValidTransition = (from: PipelineStatus, to: PipelineStatus): boo
   if (fromIdx === -1 || toIdx === -1) return false;
   return Math.abs(toIdx - fromIdx) <= 1;
 };
+
+export interface CandidateProfile {
+  id: number;
+  user_id: number;
+
+  full_name: string;
+  email: string;
+  phone: string;
+
+  current_location: string;
+  city: string;
+  state: string;
+  country: string;
+
+  headline: string;
+  bio: string;
+
+  current_role: string;
+  current_company: string;
+  total_experience_years: number;
+  notice_period_days: number;
+
+  current_salary: number;
+  expected_salary: number;
+  currency: string;
+
+  highest_qualification: string;
+  cgpa: number;
+
+  availability: string;
+  willing_to_relocate: boolean;
+  open_to_remote: boolean;
+  is_active_job_seeker: boolean;
+
+  preferred_locations: string[];
+  preferred_job_types: string[];
+
+  resume_url: string;
+
+  work_experiences: any[];
+  educations: any[];
+  skills: any[];
+  projects: any[];
+  certifications: any[];
+  social_links: any[];
+  languages: any[];
+
+  profile_completion_percentage: number;
+}

@@ -1,18 +1,18 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.db.deps import get_db
 from app.models.application import Application
+from app.models.candidate_profile import CandidateProfile
 from app.models.job import Job
 from app.schemas.application import (
     ApplicationCreate,
     ApplicationResponse,
     ApplicationStatusUpdate,
 )
-from app.api.deps import get_current_user
 
 router = APIRouter()
 
@@ -21,7 +21,7 @@ router = APIRouter()
 def apply_job(
     application: ApplicationCreate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
 ):
     if current_user.role != "candidate":
         raise HTTPException(status_code=403, detail="Only candidates can apply")
@@ -32,27 +32,51 @@ def apply_job(
 
     existing = db.query(Application).filter(
         Application.user_id == current_user.id,
-        Application.job_id == application.job_id
+        Application.job_id == application.job_id,
     ).first()
 
     if existing:
         raise HTTPException(status_code=400, detail="Already applied")
 
+    profile = db.query(CandidateProfile).filter(
+        CandidateProfile.user_id == current_user.id
+    ).first()
+
+    candidate_name = current_user.name
+    candidate_email = current_user.email
+    phone = application.phone
+    location = application.location
+    cgpa = application.cgpa
+    resume_url = application.resume_url
+    experience_years = application.experience_years
+    skills = application.skills
+
+    if profile:
+        candidate_name = profile.full_name or candidate_name
+        candidate_email = profile.email or candidate_email
+        phone = profile.phone or phone
+        location = profile.current_location or location
+        cgpa = profile.cgpa or cgpa
+        resume_url = profile.resume_url or resume_url
+        experience_years = profile.total_experience_years or experience_years
+        skills = [skill.skill_name for skill in profile.skills] if profile.skills else skills
+
     db_app = Application(
         user_id=current_user.id,
         job_id=application.job_id,
-        candidate_name=current_user.name,
-        candidate_email=current_user.email,
+        candidate_profile_id=profile.id if profile else None,
+        candidate_name=candidate_name,
+        candidate_email=candidate_email,
         score=application.score,
         notes=application.notes,
-        skills=application.skills,
-        experience_years=application.experience_years,
+        skills=skills,
+        experience_years=experience_years,
         avatar=application.avatar,
         role=application.role,
-        location=application.location,
-        phone=application.phone,
-        cgpa=application.cgpa,
-        resume_url=application.resume_url,
+        location=location,
+        phone=phone,
+        cgpa=cgpa,
+        resume_url=resume_url,
         status_history=[{"status": "applied", "date": datetime.utcnow().isoformat()}],
     )
 
@@ -70,50 +94,35 @@ def get_applications(
     limit: int = Query(100, ge=1, le=500, description="Number of records to return"),
     status: str = Query(None, description="Filter by application status"),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
 ):
-    """
-    Get applications for recruiter's jobs with pagination and filtering.
-    
-    Optimization:
-    - For recruiters: Only shows applicants to jobs they posted (via JOIN with Job table)
-    - For admins: Shows all applications
-    - Database-level filtering for better performance
-    - Indexes on job_id, status, user_id for fast queries
-    """
     if current_user.role not in ["admin", "recruiter"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     query = db.query(Application)
-    
-    # Filter by recruiter's jobs (only for recruiters, admins see all)
+
     if current_user.role == "recruiter":
         recruiter_job_ids = db.query(Job.id).filter(
             Job.created_by == current_user.id
         ).subquery()
         query = query.filter(Application.job_id.in_(recruiter_job_ids))
-    
-    # Apply status filter
+
     if status:
         query = query.filter(Application.status == status)
-    
-    # Order by applied date (most recent first) and apply pagination
-    applications = query.order_by(Application.applied_at.desc()).offset(skip).limit(limit).all()
-    
-    return applications
+
+    return query.order_by(Application.applied_at.desc()).offset(skip).limit(limit).all()
 
 
 @router.get("/me", response_model=list[ApplicationResponse])
 def get_my_applications(
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
 ):
     if current_user.role not in ["admin", "recruiter", "candidate"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    return db.query(Application).filter(
-        Application.user_id == current_user.id
-    ).all()
+    return db.query(Application).filter(Application.user_id == current_user.id).all()
+
 
 VALID_STATUSES = ["applied", "shortlisted", "interview", "selected", "rejected"]
 FORWARD_FLOW = ["applied", "shortlisted", "interview", "selected"]
@@ -140,21 +149,18 @@ def update_application_status(
     application_id: int,
     payload: ApplicationStatusUpdate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
 ):
-    """Update application status. Recruiters can only update applications for their own jobs."""
     if current_user.role not in ["admin", "recruiter"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     if payload.status not in VALID_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid status")
-    
-    app = db.query(Application).filter(Application.id == application_id).first()
 
+    app = db.query(Application).filter(Application.id == application_id).first()
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
 
-    # Verify recruiter can only update applications for their own jobs
     if current_user.role == "recruiter":
         job = db.query(Job).filter(Job.id == app.job_id).first()
         if not job or job.created_by != current_user.id:
@@ -186,15 +192,13 @@ def get_applications_by_job(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Get applications for a specific job. Recruiters can only view their own jobs."""
     if current_user.role not in ["admin", "recruiter"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    
-    # Verify recruiter can only view applications for their own jobs
+
     if current_user.role == "recruiter" and job.created_by != current_user.id:
         raise HTTPException(status_code=403, detail="Cannot view applications for job not created by you")
 
