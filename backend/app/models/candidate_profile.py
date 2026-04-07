@@ -74,7 +74,6 @@ class CandidateProfile(Base):
     social_links = relationship("SocialLink", back_populates="profile", cascade="all, delete-orphan")
     resumes = relationship("Resume", back_populates="profile", cascade="all, delete-orphan")
     languages = relationship("CandidateLanguage", back_populates="profile", cascade="all, delete-orphan")
-    applications = relationship("Application", back_populates="candidate_profile", cascade="all, delete-orphan")
 
 
 class WorkExperience(Base):

@@ -48,10 +48,14 @@ def get_jobs(
     is_active: bool = Query(True, description="Filter by active status"),
     department: str = Query(None, description="Filter by department"),
     status: str = Query(None, description="Filter by job status"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
 ):
     """
     Get all jobs with pagination and filtering.
+    - Admins: See all jobs
+    - Recruiters: See only their own posted jobs
+    - Candidates: See all active jobs
     
     Optimized query with:
     - Pagination (skip/limit)
@@ -61,8 +65,18 @@ def get_jobs(
     """
     query = db.query(Job)
     
+    # Role-based filtering
+    if current_user.role == "recruiter":
+        # Recruiters only see jobs they created
+        query = query.filter(Job.created_by == current_user.id)
+    elif current_user.role == "candidate":
+        # Candidates only see active jobs
+        query = query.filter(Job.is_active == True)
+    # Admins see all jobs
+    
     # Apply filters
-    query = query.filter(Job.is_active == is_active)
+    if not (current_user.role == "candidate"):
+        query = query.filter(Job.is_active == is_active)
     
     if department:
         query = query.filter(Job.department == department)

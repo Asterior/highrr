@@ -64,7 +64,6 @@ def apply_job(
     db_app = Application(
         user_id=current_user.id,
         job_id=application.job_id,
-        candidate_profile_id=profile.id if profile else None,
         candidate_name=candidate_name,
         candidate_email=candidate_email,
         score=application.score,
@@ -86,6 +85,41 @@ def apply_job(
     db.refresh(db_app)
 
     return db_app
+
+
+@router.get("/candidates", response_model=list[ApplicationResponse])
+def get_candidates(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Number of records to return"),
+    status: str = Query(None, description="Filter by application status"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """
+    Get all candidates (applicants) for recruiters viewing their job applicants
+    - Recruiters: See applicants to their posted jobs only (with pagination)
+    - Admins: See all applicants (with pagination)
+    - Candidates: Not allowed
+    """
+    if current_user.role not in ["admin", "recruiter"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    query = db.query(Application)
+    
+    # Filter by role
+    if current_user.role == "recruiter":
+        # Recruiters can only see applicants to jobs they posted
+        recruiter_job_ids = db.query(Job.id).filter(
+            Job.created_by == current_user.id
+        ).subquery()
+        query = query.filter(Application.job_id.in_(recruiter_job_ids))
+    # Admins see all applicants
+    
+    # Apply status filter
+    if status:
+        query = query.filter(Application.status == status)
+
+    return query.order_by(Application.applied_at.desc()).offset(skip).limit(limit).all()
 
 
 @router.get("/", response_model=list[ApplicationResponse])
