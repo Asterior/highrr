@@ -19,6 +19,8 @@ from app.models import message
 from app.api.v1.endpoints import interviews
 from app.api.v1.endpoints import messages
 from app.api.v1.endpoints import analytics
+from app.api.v1.endpoints import candidate_profile, file_upload
+
 
 app = FastAPI()
 
@@ -51,7 +53,8 @@ app.include_router(applications.router, prefix="/applications", tags=["Applicati
 app.include_router(interviews.router, prefix="/interviews", tags=["Interviews"])
 app.include_router(messages.router, tags=["Messages"])
 app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
-
+app.include_router(candidate_profile.router)
+app.include_router(file_upload.router)
 @app.get("/")
 def root():
     return {"message": "Highrr Employer Backend Running 🚀"}
