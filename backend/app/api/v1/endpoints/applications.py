@@ -1,8 +1,8 @@
 from datetime import datetime
-
+from app.db.deps import get_db
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-
+from app.models.candidate_profile import CandidateProfile
 from app.db.deps import get_db
 from app.models.application import Application
 from app.models.job import Job
@@ -37,21 +37,48 @@ def apply_job(
     if existing:
         raise HTTPException(status_code=400, detail="Already applied")
 
+    # ✅ EVERYTHING BELOW MUST BE INSIDE FUNCTION (indented)
+
+    profile = db.query(CandidateProfile).filter(
+        CandidateProfile.user_id == current_user.id
+    ).first()
+
+    candidate_name = current_user.name
+    candidate_email = current_user.email
+    phone = application.phone
+    location = application.location
+    cgpa = application.cgpa
+    resume_url = application.resume_url
+    experience_years = application.experience_years
+    skills = application.skills
+
+    if profile:
+        candidate_name = profile.full_name or candidate_name
+        candidate_email = profile.email or candidate_email
+        phone = profile.phone or phone
+        location = profile.current_location or location
+        cgpa = profile.cgpa or cgpa
+        resume_url = profile.resume_url or resume_url
+        experience_years = profile.total_experience_years or experience_years
+
+        if hasattr(profile, "skills"):
+            skills = [s.skill_name for s in profile.skills]
+
     db_app = Application(
         user_id=current_user.id,
         job_id=application.job_id,
-        candidate_name=current_user.name,
-        candidate_email=current_user.email,
+        candidate_name=candidate_name,
+        candidate_email=candidate_email,
         score=application.score,
         notes=application.notes,
-        skills=application.skills,
-        experience_years=application.experience_years,
+        skills=skills,
+        experience_years=experience_years,
         avatar=application.avatar,
         role=application.role,
-        location=application.location,
-        phone=application.phone,
-        cgpa=application.cgpa,
-        resume_url=application.resume_url,
+        location=location,
+        phone=phone,
+        cgpa=cgpa,
+        resume_url=resume_url,
         status_history=[{"status": "applied", "date": datetime.utcnow().isoformat()}],
     )
 
@@ -61,7 +88,6 @@ def apply_job(
     db.refresh(db_app)
 
     return db_app
-
 
 @router.get("/", response_model=list[ApplicationResponse])
 def get_applications(

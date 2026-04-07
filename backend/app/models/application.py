@@ -1,7 +1,8 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Float
 from datetime import datetime
+from sqlalchemy.orm import relationship
 from app.db.base import Base
-
+from app.models.candidate_profile import CandidateProfile
 
 class Application(Base):
     __tablename__ = "applications"
@@ -33,3 +34,5 @@ class Application(Base):
 
     applied_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    candidate_profile_id = Column(Integer, ForeignKey("candidate_profiles.id"))
+    candidate_profile = relationship("CandidateProfile")
