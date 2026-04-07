@@ -1,9 +1,25 @@
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { useStore } from "@/stores/useStore";
+import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
 
 const CandidateApplications = () => {
-  const { user, applications, jobs } = useStore();
+  const { user, applications, jobs, loadApplications, isLoading } = useStore();
+
+  // Load applications from API on component mount
+  useEffect(() => {
+    const loadApps = async () => {
+      try {
+        await loadApplications();
+      } catch (error) {
+        console.error("Error loading applications:", error);
+        toast({ title: "Error", description: "Failed to load applications", variant: "destructive" });
+      }
+    };
+    loadApps();
+  }, [loadApplications]);
+
   const myApps = applications.filter((a) => a.user_id === user.id);
 
   const getStatusColor = (status: string) => {

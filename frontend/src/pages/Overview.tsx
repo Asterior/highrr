@@ -1,8 +1,10 @@
 import { Briefcase, Users, Calendar, Clock, Plus, Eye } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { motion } from "framer-motion";
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useStore } from "@/stores/useStore";
+import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
 import MetricCard from "@/components/MetricCard";
 
@@ -13,7 +15,20 @@ const heroMetrics = [
 ];
 
 const Overview = () => {
-  const { jobs, applications, interviews, user } = useStore();
+  const { jobs, applications, interviews, user, loadJobs, loadApplications } = useStore();
+
+  // Load jobs and applications from API on component mount
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        await Promise.all([loadJobs(), loadApplications()]);
+      } catch (error) {
+        console.error("Error loading overview data:", error);
+        toast({ title: "Error", description: "Failed to load overview data", variant: "destructive" });
+      }
+    };
+    loadData();
+  }, [loadJobs, loadApplications]);
 
   const activeJobs = jobs.filter((j) => j.status === "Active").length;
   const totalCandidates = applications.length;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
@@ -18,11 +18,24 @@ const columnDefs: { id: PipelineStatus; title: string }[] = [
 ];
 
 const Pipeline = () => {
-  const { applications, updateApplicationStatus, bulkUpdateStatus, jobs } = useStore();
+  const { applications, updateApplicationStatus, bulkUpdateStatus, jobs, loadJobs, loadApplications } = useStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const jobFilter = searchParams.get("job") || "all";
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkMode, setBulkMode] = useState(false);
+
+  // Load jobs and applications from API on component mount
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        await Promise.all([loadJobs(), loadApplications()]);
+      } catch (error) {
+        console.error("Error loading data:", error);
+        toast({ title: "Error", description: "Failed to load pipeline data", variant: "destructive" });
+      }
+    };
+    loadData();
+  }, [loadJobs, loadApplications]);
 
   const filteredApps = jobFilter === "all" ? applications : applications.filter((a) => a.job_id === jobFilter);
 
@@ -31,7 +44,7 @@ const Pipeline = () => {
     items: filteredApps.filter((a) => a.status === col.id),
   }));
 
-  const onDragEnd = (result: DropResult) => {
+  const onDragEnd = async (result: DropResult) => {
     const { source, destination, draggableId } = result;
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
@@ -41,13 +54,23 @@ const Pipeline = () => {
     if (!app) return;
 
     if (!isValidTransition(app.status, targetStatus)) {
-      toast({ title: "Invalid move", description: `Cannot move from "${app.status}" to "${targetStatus}".`, variant: "destructive" });
+      // Show appropriate warning message
+      const message = targetStatus === "rejected" 
+        ? `Cannot move from "${app.status}" to rejected.`
+        : app.status === "rejected"
+        ? `Cannot move candidates back from rejected.`
+        : `Can only move to the next stage. Current: "${app.status}", Target: "${targetStatus}".`;
+      
+      toast({ title: "Invalid move", description: message, variant: "destructive" });
       return;
     }
 
-    const success = updateApplicationStatus(draggableId, targetStatus);
+    // Call updateApplicationStatus and await it
+    const success = await updateApplicationStatus(draggableId, targetStatus);
     if (success) {
       toast({ title: "Status updated", description: `${app.candidate_name} moved to ${targetStatus}.` });
+    } else {
+      toast({ title: "Error", description: "Failed to update candidate status.", variant: "destructive" });
     }
   };
 

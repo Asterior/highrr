@@ -244,7 +244,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   /**
-   * Update application status via API
+   * Update application status via API with optimistic updates
    */
   updateApplicationStatus: async (id, status) => {
     try {
@@ -255,10 +255,10 @@ export const useStore = create<AppState>((set, get) => ({
       if (!app) return false;
       if (!isValidTransition(app.status, status)) return false;
       
-      // Call API to update status
-      await updateApplicationStatusAPI(id, status, token);
+      // Store old state for potential rollback
+      const oldStatus = app.status;
       
-      // Update local state
+      // Optimistic update: update UI immediately
       set((s) => ({
         applications: s.applications.map((a) =>
           a.id === id
@@ -270,7 +270,27 @@ export const useStore = create<AppState>((set, get) => ({
             : a
         ),
       }));
-      return true;
+      
+      try {
+        // Call API to persist the change
+        await updateApplicationStatusAPI(id, status, token);
+        return true;
+      } catch (error) {
+        console.error("Failed to update on server, reverting:", error);
+        // Revert to old state if API fails
+        set((s) => ({
+          applications: s.applications.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  status: oldStatus,
+                  status_history: (a.status_history || []).slice(0, -1), // Remove last entry
+                }
+              : a
+          ),
+        }));
+        throw error;
+      }
     } catch (error) {
       console.error("Failed to update application status:", error);
       return false;
