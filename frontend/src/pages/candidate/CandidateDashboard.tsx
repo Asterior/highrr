@@ -8,22 +8,22 @@ import MetricCard from "@/components/MetricCard";
 import { toast } from "@/hooks/use-toast";
 
 const CandidateDashboard = () => {
-  const { user, applications, interviews, loadJobs, loadApplications } = useStore();
+  const { user, applications, interviews, loadJobs, loadApplications, loadInterviews } = useStore();
 
   // Load jobs and applications from API on component mount
   useEffect(() => {
     const loadData = async () => {
       try {
-        await Promise.all([loadJobs(), loadApplications()]);
+        await Promise.all([loadJobs(), loadApplications(), loadInterviews(true)]);
       } catch (error) {
         console.error("Error loading data:", error);
         toast({ title: "Error", description: "Failed to load data", variant: "destructive" });
       }
     };
     loadData();
-  }, [loadJobs, loadApplications]);
+  }, [loadJobs, loadApplications, loadInterviews]);
 
-  const myApps = applications.filter((a) => a.user_id === user.id);
+  const myApps = applications.filter((a) => String(a.user_id) === String(user.id));
   const myInterviews = interviews.filter((i) =>
     myApps.some((a) => a.id === i.application_id)
   );
@@ -39,9 +39,17 @@ const CandidateDashboard = () => {
 
   return (
     <PageLayout>
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-3xl font-bold text-foreground">Welcome back, {user.name.split(" ")[0]} 👋</h1>
-        <p className="text-muted-foreground mt-1">Track your applications and stay on top of your job search.</p>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-border bg-gradient-to-br from-white via-violet-50/40 to-white p-6 shadow-card">
+        <h1 className="text-3xl font-bold text-foreground">Welcome back, {user.name.split(" ")[0]}</h1>
+        <p className="text-muted-foreground mt-1">Track your applications, interviews, and profile strength from one place.</p>
+        <div className="mt-4 flex gap-3 flex-wrap">
+          <Link to="/candidate/jobs" className="gradient-primary text-primary-foreground px-5 py-2.5 rounded-xl text-sm font-semibold hover-lift">
+            Explore roles
+          </Link>
+          <Link to="/candidate/applications" className="bg-card border border-border text-foreground px-5 py-2.5 rounded-xl text-sm font-semibold hover-lift shadow-card">
+            View pipeline
+          </Link>
+        </div>
       </motion.div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-8">

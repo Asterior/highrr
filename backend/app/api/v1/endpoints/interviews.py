@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -85,9 +86,7 @@ def get_my_interviews(db: Session = Depends(get_db), current_user=Depends(get_cu
         )
     elif current_user.role == "recruiter":
         # Recruiters see interviews for applicants to their jobs
-        recruiter_job_ids = db.query(Job.id).filter(
-            Job.created_by == current_user.id
-        ).subquery()
+        recruiter_job_ids = select(Job.id).where(Job.created_by == current_user.id)
         return (
             db.query(Interview)
             .join(Application, Interview.application_id == Application.id)

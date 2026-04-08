@@ -22,6 +22,7 @@ interface AppState {
   isAuthenticated: boolean;
   login: (user: CurrentUser) => void;
   logout: () => void;
+  restoreSession: () => void;
   updateProfile: (data: Partial<CurrentUser>) => void;
 
   jobs: Job[];
@@ -30,9 +31,12 @@ interface AppState {
     title: string;
     description: string;
     location?: string;
-    salary?: string;
+    salary: string;
     department?: string;
     job_type: Job["job_type"];
+    responsibilities: string;
+    hiring_timeline: string;
+    actively_hiring: boolean;
     required_skills: string[];
     experience_required?: string;
     status: string;
@@ -79,6 +83,23 @@ interface AppState {
 let idCounter = 100;
 const genId = (prefix: string) => `${prefix}-${++idCounter}`;
 
+const getInitialAuthState = () => {
+  const token = localStorage.getItem("token");
+  const rawUser = localStorage.getItem("auth_user");
+  if (!token || !rawUser) return { isAuthenticated: false, user: currentUser };
+
+  try {
+    const parsedUser = JSON.parse(rawUser) as CurrentUser;
+    return { isAuthenticated: true, user: parsedUser };
+  } catch {
+    localStorage.removeItem("auth_user");
+    localStorage.removeItem("token");
+    return { isAuthenticated: false, user: currentUser };
+  }
+};
+
+const initialAuthState = getInitialAuthState();
+
 const mapJobFromApi = (job: any): Job => ({
   id: job.id.toString(),
   title: job.title,
@@ -86,15 +107,25 @@ const mapJobFromApi = (job: any): Job => ({
   location: job.location,
   salary: job.salary,
   job_type: job.job_type,
+  responsibilities: job.responsibilities,
+  hiring_timeline: job.hiring_timeline,
+  actively_hiring: Boolean(job.actively_hiring),
   required_skills: job.required_skills || [],
   experience_required: job.experience_required,
   is_active: job.is_active,
   application_deadline: job.application_deadline || null,
+  posted_expires_at: job.posted_expires_at || null,
+  renewed_count: job.renewed_count || 0,
   created_by: job.created_by.toString(),
   created_at: job.created_at,
   application_count: job.application_count || 0,
   department: job.department || "Engineering",
   status: job.status || "Inactive",
+  recruiter_response_rate: job.recruiter_response_rate || 0,
+  is_flagged: Boolean(job.is_flagged),
+  fraud_flags: job.fraud_flags || [],
+  company_verification_level: job.company_verification_level || "basic",
+  company_trust_score: job.company_trust_score || 0,
   recruiter_status: job.recruiter_status || job.status || "Inactive",
   candidate_status: job.candidate_status || job.status || "Inactive",
   has_applied: Boolean(job.has_applied),
@@ -104,16 +135,33 @@ const mapJobFromApi = (job: any): Job => ({
 });
 
 export const useStore = create<AppState>((set, get) => ({
-  user: currentUser,
-  isAuthenticated: false,
+  user: initialAuthState.user,
+  isAuthenticated: initialAuthState.isAuthenticated,
 
   login: (user: CurrentUser) => {
+    localStorage.setItem("auth_user", JSON.stringify(user));
     set({ isAuthenticated: true, user });
   },
 
   logout: () => {
     localStorage.removeItem("token");
+    localStorage.removeItem("auth_user");
     set({ isAuthenticated: false, user: currentUser });
+  },
+
+  restoreSession: () => {
+    const token = localStorage.getItem("token");
+    const rawUser = localStorage.getItem("auth_user");
+    if (!token || !rawUser) return;
+
+    try {
+      const parsedUser = JSON.parse(rawUser) as CurrentUser;
+      set({ isAuthenticated: true, user: parsedUser });
+    } catch {
+      localStorage.removeItem("auth_user");
+      localStorage.removeItem("token");
+      set({ isAuthenticated: false, user: currentUser });
+    }
   },
 
   updateProfile: (data) => set((s) => ({ user: { ...s.user, ...data } })),
@@ -125,6 +173,9 @@ export const useStore = create<AppState>((set, get) => ({
    */
   loadJobs: async () => {
     try {
+      if (get().jobs.length > 0) {
+        return;
+      }
       set({ isLoading: true });
       const token = localStorage.getItem("token");
       const jobsData = await getJobs(token, 0, 100);
@@ -153,6 +204,9 @@ export const useStore = create<AppState>((set, get) => ({
           location: job.location,
           salary: job.salary,
           job_type: job.job_type,
+          responsibilities: job.responsibilities,
+          hiring_timeline: job.hiring_timeline,
+          actively_hiring: job.actively_hiring,
           required_skills: job.required_skills,
           experience_required: job.experience_required,
           department: job.department,
@@ -186,6 +240,9 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.location !== undefined) updatePayload.location = data.location;
       if (data.salary !== undefined) updatePayload.salary = data.salary;
       if (data.job_type !== undefined) updatePayload.job_type = data.job_type;
+      if (data.responsibilities !== undefined) updatePayload.responsibilities = data.responsibilities;
+      if (data.hiring_timeline !== undefined) updatePayload.hiring_timeline = data.hiring_timeline;
+      if (data.actively_hiring !== undefined) updatePayload.actively_hiring = data.actively_hiring;
       if (data.required_skills !== undefined) updatePayload.required_skills = data.required_skills;
       if (data.experience_required !== undefined) updatePayload.experience_required = data.experience_required;
       if (data.department !== undefined) updatePayload.department = data.department;
@@ -245,8 +302,13 @@ export const useStore = create<AppState>((set, get) => ({
         id: app.id.toString(),
         user_id: app.user_id.toString(),
         job_id: app.job_id.toString(),
-        candidate_name: app.candidate_name,
-        candidate_email: app.candidate_email,
+        candidate_name: app.candidate_name || app.user_name || "Candidate",
+        candidate_email: app.candidate_email || "",
+        candidate_location: app.candidate_location || app.location || "",
+        current_role: app.current_role || app.role || "",
+        current_company: app.current_company || "",
+        highest_qualification: app.highest_qualification || "",
+        profile_completion_percentage: app.profile_completion_percentage || 0,
         status: app.status,
         score: app.score || 0,
         assigned_to: app.assigned_to?.toString() || null,
@@ -610,11 +672,24 @@ export const useStore = create<AppState>((set, get) => ({
     const user = get().user;
     const conv = get().conversations.find((c) => c.id === conversationId);
     if (!conv) return;
+
+    const userId = String(user.id);
+    const participantId = String(conv.participant_id);
+    const inferredPeerFromMessages = conv.messages.find(
+      (m) => String(m.sender_id) !== userId || String(m.receiver_id) !== userId
+    );
+    const fallbackPeer = inferredPeerFromMessages
+      ? String(inferredPeerFromMessages.sender_id) === userId
+        ? String(inferredPeerFromMessages.receiver_id)
+        : String(inferredPeerFromMessages.sender_id)
+      : participantId;
+    const receiverId = participantId === userId ? fallbackPeer : participantId;
+
     const newMsg: Message = {
       id: genId("msg"),
       sender_id: user.id,
       sender_name: user.name,
-      receiver_id: conv.participant_id,
+      receiver_id: receiverId,
       receiver_name: conv.participant_name,
       message: text,
       sent_at: new Date().toISOString(),

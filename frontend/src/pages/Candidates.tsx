@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
-import { Search, MessageSquare, Eye, ArrowRight, CalendarClock } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { Search, MessageSquare, Eye, ArrowRight, CalendarClock, Download, Mail, Phone, MapPin, GraduationCap, Briefcase, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useStore } from "@/stores/useStore";
 import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { getCandidateProfileByUser } from "@/services/api";
 
 const Candidates = () => {
   const { applications, jobs, loadApplications, updateApplicationStatus, isLoading } = useStore();
@@ -12,7 +14,12 @@ const Candidates = () => {
   const [jobFilter, setJobFilter] = useState("All");
   const [skillFilter, setSkillFilter] = useState("All");
   const [expFilter, setExpFilter] = useState("All");
+  const [locationFilter, setLocationFilter] = useState("All");
+  const [educationFilter, setEducationFilter] = useState("All");
   const [loadingMessage, setLoadingMessage] = useState("");
+  const [selectedCandidate, setSelectedCandidate] = useState<any | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<any | null>(null);
+  const [drawerLoading, setDrawerLoading] = useState(false);
 
   // Load applications from API on component mount
   useEffect(() => {
@@ -32,6 +39,8 @@ const Candidates = () => {
 
   // Get unique skills from applications
   const allSkills = [...new Set(applications.flatMap((a) => a.skills))];
+  const allLocations = [...new Set(applications.map((a) => a.candidate_location || a.location || "Unknown"))];
+  const allQualifications = [...new Set(applications.map((a) => a.highest_qualification || "Not specified"))];
 
   // Filter candidates based on search and filter criteria
   const filtered = applications.filter((c) => {
@@ -39,8 +48,28 @@ const Candidates = () => {
     const matchJob = jobFilter === "All" || c.job_id === jobFilter;
     const matchSkill = skillFilter === "All" || c.skills.includes(skillFilter);
     const matchExp = expFilter === "All" || (expFilter === "0-2" && c.experience_years <= 2) || (expFilter === "3-5" && c.experience_years >= 3 && c.experience_years <= 5) || (expFilter === "5+" && c.experience_years > 5);
-    return matchSearch && matchJob && matchSkill && matchExp;
+    const matchLocation = locationFilter === "All" || (c.candidate_location || c.location || "Unknown") === locationFilter;
+    const matchEducation = educationFilter === "All" || (c.highest_qualification || "Not specified") === educationFilter;
+    return matchSearch && matchJob && matchSkill && matchExp && matchLocation && matchEducation;
   });
+
+  const shortlistCount = useMemo(() => applications.filter((a) => a.status === "shortlisted").length, [applications]);
+
+  const openCandidate = async (candidate: any) => {
+    setSelectedCandidate(candidate);
+    setSelectedProfile(null);
+    try {
+      setDrawerLoading(true);
+      const token = localStorage.getItem("token");
+      if (!token) return;
+      const profile = await getCandidateProfileByUser(token, candidate.user_id);
+      setSelectedProfile(profile);
+    } catch {
+      setSelectedProfile(null);
+    } finally {
+      setDrawerLoading(false);
+    }
+  };
 
   const handleShortlist = async (id: string) => {
     try {
@@ -88,7 +117,7 @@ const Candidates = () => {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Candidates</h1>
-          <p className="text-muted-foreground mt-1">{applications.length} candidates in pipeline</p>
+          <p className="text-muted-foreground mt-1">{applications.length} candidates in pipeline · {shortlistCount} shortlisted</p>
         </div>
         <Link to="/shortlisted" className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 transition-opacity">
           <CalendarClock className="w-4 h-4" /> Open shortlist workspace
@@ -96,7 +125,7 @@ const Candidates = () => {
       </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
-        <div className="flex-1 min-w-[200px] flex items-center gap-2 bg-muted rounded-xl px-4 py-2.5">
+        <div className="flex-1 min-w-[220px] flex items-center gap-2 bg-muted rounded-xl px-4 py-2.5">
           <Search className="w-4 h-4 text-muted-foreground" />
           <input type="text" placeholder="Search candidates..." value={search} onChange={(e) => setSearch(e.target.value)} className="bg-transparent text-sm outline-none w-full placeholder:text-muted-foreground" />
         </div>
@@ -114,9 +143,17 @@ const Candidates = () => {
           <option value="3-5">3-5 years</option>
           <option value="5+">5+ years</option>
         </select>
+        <select value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)} className="bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
+          <option value="All">All Locations</option>
+          {allLocations.map((location) => <option key={location} value={location}>{location}</option>)}
+        </select>
+        <select value={educationFilter} onChange={(e) => setEducationFilter(e.target.value)} className="bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
+          <option value="All">All Education</option>
+          {allQualifications.map((qualification) => <option key={qualification} value={qualification}>{qualification}</option>)}
+        </select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mt-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 mt-8">
         {filtered.map((c, i) => (
           <motion.div key={c.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }} className="bg-card rounded-2xl border border-border p-6 shadow-card hover-lift">
             <div className="flex items-start justify-between">
@@ -133,16 +170,21 @@ const Candidates = () => {
             <div className="flex items-center gap-2 mt-3">
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${c.status === "selected" ? "bg-emerald-50 text-emerald-600" : c.status === "rejected" ? "bg-red-50 text-red-500" : c.status === "interview" ? "bg-blue-50 text-blue-600" : "bg-secondary text-accent-foreground"}`}>{statusLabel(c.status)}</span>
               <span className="text-xs text-muted-foreground">{c.experience_years}y exp</span>
-              {c.phone && <span className="text-xs text-muted-foreground">{c.phone}</span>}
-              {c.cgpa && <span className="text-xs text-muted-foreground">CGPA: {c.cgpa}</span>}
+              {c.candidate_location && <span className="text-xs text-muted-foreground">{c.candidate_location}</span>}
+              {c.highest_qualification && <span className="text-xs text-muted-foreground">{c.highest_qualification}</span>}
             </div>
             <div className="flex flex-wrap gap-2 mt-4">
               {c.skills.map((s) => <span key={s} className="px-2.5 py-1 bg-muted rounded-lg text-xs text-muted-foreground font-medium">{s}</span>)}
             </div>
-            <div className="flex gap-2 mt-5">
-              <Link to={`/candidates/${c.id}`} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-secondary text-accent-foreground rounded-xl text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors">
-                <Eye className="w-4 h-4" /> Profile
-              </Link>
+            <div className="flex gap-2 mt-5 flex-wrap">
+              <button onClick={() => openCandidate(c)} className="flex-1 min-w-[110px] flex items-center justify-center gap-1.5 px-3 py-2 bg-secondary text-accent-foreground rounded-xl text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors">
+                <Eye className="w-4 h-4" /> Review
+              </button>
+              {c.resume_url && (
+                <a href={c.resume_url} target="_blank" rel="noreferrer" className="flex-1 min-w-[110px] flex items-center justify-center gap-1.5 px-3 py-2 bg-muted text-foreground rounded-xl text-sm font-medium hover:bg-secondary transition-colors">
+                  <Download className="w-4 h-4" /> Resume
+                </a>
+              )}
               {c.status === "applied" && (
                 <button onClick={() => handleShortlist(c.id)} disabled={isLoading} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 gradient-primary text-primary-foreground rounded-xl text-sm font-medium hover-lift disabled:opacity-50">
                   <ArrowRight className="w-4 h-4" /> Shortlist
@@ -160,6 +202,83 @@ const Candidates = () => {
           </motion.div>
         ))}
       </div>
+
+      <Sheet open={!!selectedCandidate} onOpenChange={(open) => !open && setSelectedCandidate(null)}>
+        <SheetContent className="w-[min(100vw,42rem)] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>{selectedCandidate?.candidate_name || "Candidate review"}</SheetTitle>
+            <SheetDescription>
+              Direct review of profile, resume, and contact details pulled from the live API.
+            </SheetDescription>
+          </SheetHeader>
+
+          {selectedCandidate && (
+            <div className="mt-6 space-y-5">
+              <div className="rounded-2xl border border-border bg-gradient-to-br from-white via-violet-50/35 to-white p-5 shadow-card">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-2xl font-bold text-foreground">{selectedCandidate.candidate_name}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">{selectedCandidate.current_role || selectedCandidate.role || "Role not shared"} · {selectedCandidate.current_company || "Open to opportunities"}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="rounded-full bg-secondary px-3 py-1.5 text-xs font-semibold text-accent-foreground">{selectedCandidate.score}% match</span>
+                      <span className="rounded-full bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700">{selectedCandidate.profile_completion_percentage || 0}% profile</span>
+                      {selectedCandidate.highest_qualification && <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">{selectedCandidate.highest_qualification}</span>}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-muted/40 px-4 py-3 text-right">
+                    <div className="text-xs text-muted-foreground">Location</div>
+                    <div className="text-sm font-semibold text-foreground">{selectedCandidate.candidate_location || selectedCandidate.location || "Unknown"}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-border bg-card p-4">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Mail className="w-3.5 h-3.5" /> Email</div>
+                  <p className="mt-2 text-sm font-medium text-foreground">{selectedCandidate.candidate_email}</p>
+                </div>
+                <div className="rounded-2xl border border-border bg-card p-4">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Phone className="w-3.5 h-3.5" /> Contact</div>
+                  <p className="mt-2 text-sm font-medium text-foreground">{selectedProfile?.phone || selectedCandidate.phone || "Not shared"}</p>
+                </div>
+                <div className="rounded-2xl border border-border bg-card p-4">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><MapPin className="w-3.5 h-3.5" /> Location</div>
+                  <p className="mt-2 text-sm font-medium text-foreground">{selectedProfile?.current_location || selectedCandidate.candidate_location || selectedCandidate.location || "Not shared"}</p>
+                </div>
+                <div className="rounded-2xl border border-border bg-card p-4">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><GraduationCap className="w-3.5 h-3.5" /> Education</div>
+                  <p className="mt-2 text-sm font-medium text-foreground">{selectedProfile?.highest_qualification || selectedCandidate.highest_qualification || "Not shared"}</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Briefcase className="w-3.5 h-3.5" /> Resume and profile signals</div>
+                <div className="mt-3 space-y-2 text-sm text-foreground">
+                  <p>Experience: {selectedCandidate.experience_years} years</p>
+                  <p>Skills: {selectedCandidate.skills.join(", ") || "Not shared"}</p>
+                  <p>Profile completeness: {selectedCandidate.profile_completion_percentage || 0}%</p>
+                  {selectedProfile?.bio && <p className="text-muted-foreground leading-6">{selectedProfile.bio}</p>}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                {selectedCandidate.resume_url && (
+                  <a href={selectedCandidate.resume_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">
+                    <Download className="w-4 h-4" /> Open resume
+                  </a>
+                )}
+                {selectedCandidate.candidate_email && (
+                  <a href={`mailto:${selectedCandidate.candidate_email}`} className="inline-flex items-center gap-2 rounded-xl bg-muted px-4 py-2.5 text-sm font-semibold text-foreground">
+                    <Mail className="w-4 h-4" /> Email candidate
+                  </a>
+                )}
+              </div>
+
+              {drawerLoading && <p className="text-sm text-muted-foreground">Loading live profile details...</p>}
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
       {applications.length === 0 && !isLoading && (
         <div className="text-center py-12">

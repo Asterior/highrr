@@ -18,6 +18,15 @@ const Messages = () => {
   );
 
   useEffect(() => {
+    if (!activeChatId && filteredConvs.length > 0) {
+      setActiveChatId(filteredConvs[0].id);
+    }
+    if (activeChatId && !filteredConvs.some((c) => c.id === activeChatId) && filteredConvs.length > 0) {
+      setActiveChatId(filteredConvs[0].id);
+    }
+  }, [activeChatId, filteredConvs]);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeConv?.messages.length]);
 
@@ -48,6 +57,11 @@ const Messages = () => {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto">
+              {filteredConvs.length === 0 && (
+                <div className="h-full flex items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                  No conversations matched your search.
+                </div>
+              )}
               {filteredConvs.map((c) => (
                 <button key={c.id} onClick={() => setActiveChatId(c.id)} className={`w-full flex items-center gap-3 p-4 text-left transition-colors ${activeChatId === c.id ? "bg-secondary" : "hover:bg-muted"}`}>
                   <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-semibold flex-shrink-0">{c.participant_avatar}</div>

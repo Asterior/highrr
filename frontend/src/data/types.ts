@@ -7,15 +7,25 @@ export interface Job {
   location: string;
   salary: string;
   job_type: "full-time" | "intern" | "contract";
+  responsibilities?: string;
+  hiring_timeline?: string;
+  actively_hiring?: boolean;
   required_skills: string[];
   experience_required: string;
   is_active: boolean;
   application_deadline?: string | null;
+  posted_expires_at?: string | null;
+  renewed_count?: number;
   created_by: string;
   created_at: string;
   application_count: number;
   department: string;
-  status: string;
+  status: "Active" | "Draft" | "Paused";
+  recruiter_response_rate?: number;
+  is_flagged?: boolean;
+  fraud_flags?: string[];
+  company_verification_level?: string;
+  company_trust_score?: number;
   recruiter_status?: string;
   candidate_status?: string;
   has_applied?: boolean;
@@ -30,6 +40,11 @@ export interface Application {
   job_id: string;
   candidate_name: string;
   candidate_email: string;
+  candidate_location?: string;
+  current_role?: string;
+  current_company?: string;
+  highest_qualification?: string;
+  profile_completion_percentage?: number;
   status: "applied" | "shortlisted" | "interview" | "selected" | "rejected";
   score: number;
   assigned_to: string | null;
@@ -96,6 +111,11 @@ export interface CurrentUser {
   id: number;
   name: string;
   email: string;
+  role?: UserRole;
+  avatar?: string;
+  company?: string;
+  location?: string;
+  experience_years?: number;
 
   // ✅ Add all missing fields
   full_name?: string;
@@ -110,7 +130,6 @@ export interface CurrentUser {
   current_role?: string;
   current_company?: string;
 
-  experience_years?: number; // already exists
   total_experience_years?: number;
 
   notice_period_days?: number;

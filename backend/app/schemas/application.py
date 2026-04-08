@@ -29,6 +29,11 @@ class ApplicationResponse(BaseModel):
     job_id: int
     candidate_name: str
     candidate_email: str
+    candidate_location: str | None = None
+    current_role: str | None = None
+    current_company: str | None = None
+    highest_qualification: str | None = None
+    profile_completion_percentage: int | None = None
     status: str
     score: int
     assigned_to: int | None

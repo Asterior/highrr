@@ -29,20 +29,42 @@ export async function getMe(token: string) {
   return res.json(); // returns { id, name, email, role }
 }
 
+export async function registerUser(payload: {
+  name: string;
+  email: string;
+  password: string;
+  role: "recruiter" | "candidate" | "admin";
+}) {
+  const res = await fetch(`${BASE_URL}/users/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to register account");
+  }
+
+  return res.json();
+}
+
 // ============ JOB APIs ============
 
 interface JobPayload {
   title: string;
   description: string;
   location?: string;
-  salary?: string;
+  salary: string;
   job_type: string;
+  responsibilities: string;
+  hiring_timeline: string;
+  actively_hiring: boolean;
   required_skills?: string[];
   experience_required?: string;
   department?: string;
   status?: string;
   is_active?: boolean;
-  application_deadline?: string;
   application_count?: number;
 }
 
@@ -59,14 +81,14 @@ export async function getJobs(
   token?: string,
   skip = 0,
   limit = 100,
-  isActive?: boolean,
+  isActive = true,
   department?: string,
   status?: string
 ) {
   const params = new URLSearchParams();
   params.append("skip", skip.toString());
   params.append("limit", limit.toString());
-  if (isActive !== undefined) params.append("is_active", isActive.toString());
+  params.append("is_active", isActive.toString());
   if (department) params.append("department", department);
   if (status) params.append("status", status);
 
@@ -189,12 +211,27 @@ export async function getApplications(
   limit = 100,
   status?: string
 ) {
+  const rawUser = localStorage.getItem("auth_user");
+  let authUser: any = null;
+  if (rawUser) {
+    try {
+      authUser = JSON.parse(rawUser);
+    } catch {
+      authUser = null;
+    }
+  }
+  const isCandidate = authUser?.role === "candidate";
+
   const params = new URLSearchParams();
   params.append("skip", skip.toString());
   params.append("limit", limit.toString());
   if (status) params.append("status", status);
 
-  const res = await fetch(`${BASE_URL}/applications/?${params.toString()}`, {
+  const endpoint = isCandidate
+    ? `${BASE_URL}/applications/me`
+    : `${BASE_URL}/applications/?${params.toString()}`;
+
+  const res = await fetch(endpoint, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
@@ -418,6 +455,180 @@ export async function captureInterviewFeedback(
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.detail || "Failed to capture interview feedback");
+  }
+
+  return res.json();
+}
+
+export async function getATSScore(token: string, jobId?: number | string) {
+  const params = new URLSearchParams();
+  if (jobId !== undefined) params.append("job_id", String(jobId));
+
+  const res = await fetch(`${BASE_URL}/analytics/ats-score${params.toString() ? `?${params.toString()}` : ""}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to fetch ATS score");
+  }
+
+  return res.json();
+}
+
+export async function uploadResume(token: string, file: File, title = "My Resume", isPrimary = true) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("title", title);
+  formData.append("is_primary", String(isPrimary));
+
+  const res = await fetch(`${BASE_URL}/profile/upload/resume`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to upload resume");
+  }
+  return res.json();
+}
+
+export async function listResumes(token: string) {
+  const res = await fetch(`${BASE_URL}/profile/upload/resumes`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to fetch resumes");
+  }
+  return res.json();
+}
+
+export async function refreshResumeATS(token: string, resumeId: number | string, jobId?: number | string) {
+  const params = new URLSearchParams();
+  if (jobId !== undefined) params.append("job_id", String(jobId));
+  const url = `${BASE_URL}/profile/upload/ats-score/${resumeId}${params.toString() ? `?${params.toString()}` : ""}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to run ATS analysis");
+  }
+  return res.json();
+}
+
+export async function getRecruiterVerificationStatus(token: string) {
+  const res = await fetch(`${BASE_URL}/trust/me/status`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to fetch verification status");
+  }
+
+  return res.json();
+}
+
+export async function assessCompanyVerification(
+  token: string,
+  payload: {
+    company_name: string;
+    company_email: string;
+    company_domain?: string;
+    website_url?: string;
+    business_registry_id?: string;
+    business_country?: string;
+    domain_age_years: number;
+    has_https: boolean;
+    contact_matches_submission: boolean;
+    office_proof_verified: boolean;
+    linkedin_company_url?: string;
+    employee_count: number;
+    user_reports_penalty: number;
+  },
+) {
+  const res = await fetch(`${BASE_URL}/trust/company/assess`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Verification assessment failed");
+  }
+
+  return res.json();
+}
+
+export async function getCompanyTrust(token: string, recruiterId: number | string) {
+  const res = await fetch(`${BASE_URL}/trust/company/${recruiterId}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to fetch company trust");
+  }
+
+  return res.json();
+}
+
+export async function getCandidateProfileByUser(token: string, userId: number | string) {
+  const res = await fetch(`${BASE_URL}/profile/by-user/${userId}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to fetch candidate profile");
+  }
+
+  return res.json();
+}
+
+export async function getVerificationQueue(token: string) {
+  const res = await fetch(`${BASE_URL}/trust/admin/verification-queue`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to load verification queue");
   }
 
   return res.json();

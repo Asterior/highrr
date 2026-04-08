@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Search, MapPin, Briefcase, Clock } from "lucide-react";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import { useStore } from "@/stores/useStore";
 import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
@@ -8,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 
 const CandidateJobs = () => {
+  const navigate = useNavigate();
   const { jobs, applyToJob, loadJobs, isLoading } = useStore();
   const [search, setSearch] = useState("");
   const [deptFilter, setDeptFilter] = useState("All");
@@ -154,6 +156,16 @@ const CandidateJobs = () => {
                   <span>{viewJob.salary}</span>
                   <span>{viewJob.experience_required}</span>
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-secondary text-accent-foreground">{viewJob.job_type}</span>
+                </div>
+                <div className="rounded-2xl border border-border bg-muted/30 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Company</p>
+                      <p className="text-sm font-semibold text-foreground">Recruiter profile #{viewJob.created_by}</p>
+                      <p className="text-xs text-muted-foreground mt-1">Open the company profile to see trust data before applying.</p>
+                    </div>
+                    <Button variant="outline" onClick={() => navigate(`/candidate/company/${viewJob.created_by}`)}>View Company</Button>
+                  </div>
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-foreground mb-2">Description</h3>
