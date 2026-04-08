@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON
 from datetime import datetime
 from app.db.base import Base
 
@@ -16,31 +16,32 @@ class Job(Base):
     location = Column(String)
     salary = Column(String)
     job_type = Column(String)   # full-time / intern / contract
+    responsibilities = Column(Text, nullable=True)
+    hiring_timeline = Column(String, nullable=True)
+    actively_hiring = Column(Boolean, default=True)
+    intent_confirmed_at = Column(DateTime, nullable=True)
 
     # Requirements
     required_skills = Column(JSON, default=list)
     experience_required = Column(String)
 
     # Status
-    is_active = Column(Boolean, default=True, index=True)
-    application_deadline = Column(DateTime, nullable=True, index=True)
+    is_active = Column(Boolean, default=True)
+    application_deadline = Column(DateTime, nullable=True)
+    posted_expires_at = Column(DateTime, nullable=True)
+    renewed_count = Column(Integer, default=0)
 
     # Ownership
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     # Recruitment metadata
     application_count = Column(Integer, default=0)
-    department = Column(String, nullable=True, index=True)
-    status = Column(String, default="Active", index=True)
+    department = Column(String, nullable=True)
+    status = Column(String, default="Active")
+    recruiter_response_rate = Column(Integer, default=100)
+    is_flagged = Column(Boolean, default=False)
+    fraud_flags = Column(JSON, default=list)
 
     # Tracking
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Composite indexes for common queries
-    __table_args__ = (
-        Index('idx_jobs_is_active_created_at', 'is_active', 'created_at', postgresql_using='btree'),
-        Index('idx_jobs_department_status', 'department', 'status'),
-        Index('idx_jobs_deadline_status', 'application_deadline', 'status'),
-        Index('idx_jobs_created_by', 'created_by'),
-    )

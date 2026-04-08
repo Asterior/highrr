@@ -1,41 +1,31 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
-from app.core.job_status import (
-    applications_label,
-    candidate_job_status,
-    can_accept_applications,
-    deadline_has_passed,
-    normalize_job_status,
-    recruiter_job_status,
-)
 from app.db.deps import get_db
 from app.models.application import Application
+from app.models.company_verification import CompanyVerification
 from app.models.job import Job
 from app.schemas.job import JobCreate, JobResponse, JobUpdate
 
 router = APIRouter()
 
-VALID_BASE_STATUSES = {"active", "inactive"}
+
+def _verification_for_recruiter(db: Session, recruiter_id: int) -> tuple[str, int]:
+    company = db.query(CompanyVerification).filter(CompanyVerification.recruiter_id == recruiter_id).first()
+    if not company:
+        return "basic", 0
+    return company.verification_level or "basic", company.trust_score or 0
 
 
-def _build_job_response(
-    job: Job,
-    *,
-    current_user,
-    applications: list[Application],
-) -> dict:
+def _build_job_response(job: Job, *, current_user, applications: list[Application], db: Session) -> dict:
     application_count = len(applications)
-    has_applied = current_user.role == "candidate" and any(
-        app.user_id == current_user.id for app in applications
-    )
-    has_pending_applications = any(
-        app.status not in {"selected", "rejected"} for app in applications
-    )
-    deadline_passed = deadline_has_passed(job.application_deadline)
+    has_applied = current_user.role == "candidate" and any(app.user_id == current_user.id for app in applications)
+    can_apply = current_user.role == "candidate" and job.is_active and not has_applied
+    deadline_passed = bool(job.application_deadline and job.application_deadline <= datetime.utcnow())
+    level, score = _verification_for_recruiter(db, job.created_by)
 
     return {
         "id": job.id,
@@ -44,61 +34,32 @@ def _build_job_response(
         "location": job.location,
         "salary": job.salary,
         "job_type": job.job_type,
+        "responsibilities": job.responsibilities,
+        "hiring_timeline": job.hiring_timeline,
+        "actively_hiring": bool(job.actively_hiring),
         "required_skills": job.required_skills or [],
         "experience_required": job.experience_required,
-        "is_active": job.is_active,
+        "is_active": bool(job.is_active),
         "application_deadline": job.application_deadline,
+        "posted_expires_at": job.posted_expires_at,
+        "renewed_count": job.renewed_count or 0,
         "created_by": job.created_by,
         "application_count": application_count,
         "department": job.department,
-        "status": normalize_job_status(job.is_active),
-        "recruiter_status": recruiter_job_status(
-            is_active=job.is_active,
-            application_deadline=job.application_deadline,
-            application_count=application_count,
-            has_pending_applications=has_pending_applications,
-        ),
-        "candidate_status": candidate_job_status(
-            is_active=job.is_active,
-            application_deadline=job.application_deadline,
-            has_applied=has_applied,
-        ),
+        "status": job.status,
+        "recruiter_response_rate": job.recruiter_response_rate or 0,
+        "is_flagged": bool(job.is_flagged),
+        "fraud_flags": job.fraud_flags or [],
+        "company_verification_level": level,
+        "company_trust_score": score,
+        "recruiter_status": "Active" if job.is_active else "Inactive",
+        "candidate_status": "Applied" if has_applied else ("Active" if job.is_active else "Inactive"),
         "has_applied": has_applied,
-        "can_apply": can_accept_applications(job.is_active, job.application_deadline) and not has_applied,
+        "can_apply": can_apply,
         "deadline_passed": deadline_passed,
-        "applications_label": applications_label(application_count),
+        "applications_label": f"{application_count} applications" if application_count else "No applications received",
         "created_at": job.created_at,
     }
-
-
-def _get_job_applications_map(db: Session, job_ids: list[int]) -> dict[int, list[Application]]:
-    if not job_ids:
-        return {}
-
-    applications = db.query(Application).filter(Application.job_id.in_(job_ids)).all()
-    applications_map: dict[int, list[Application]] = {job_id: [] for job_id in job_ids}
-
-    for application in applications:
-        applications_map.setdefault(application.job_id, []).append(application)
-
-    return applications_map
-
-
-def _resolve_active_filters(is_active: bool | None, status: str | None) -> tuple[bool | None, str | None]:
-    normalized_status = status.strip().lower() if status else None
-
-    if normalized_status and normalized_status not in VALID_BASE_STATUSES:
-        raise HTTPException(status_code=400, detail="Job status must be Active or Inactive")
-
-    if normalized_status == "active":
-        return True, "Active"
-    if normalized_status == "inactive":
-        return False, "Inactive"
-
-    if is_active is None:
-        return None, None
-
-    return is_active, normalize_job_status(is_active)
 
 
 @router.post("/", response_model=JobResponse)
@@ -107,15 +68,32 @@ def create_job(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Create a new job posting. Admin and Recruiter only."""
     if current_user.role not in ["admin", "recruiter"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    if job.application_deadline <= datetime.utcnow():
-        raise HTTPException(status_code=400, detail="Application deadline must be in the future")
+    if current_user.role == "recruiter":
+        level, _score = _verification_for_recruiter(db, current_user.id)
+        if level not in {"verified", "trusted"}:
+            raise HTTPException(
+                status_code=403,
+                detail="Complete company verification first to post jobs",
+            )
 
-    resolved_is_active, resolved_status = _resolve_active_filters(job.is_active, job.status)
-    is_active = True if resolved_is_active is None else resolved_is_active
+    if not job.salary or job.salary.strip().lower() in {"competitive", "negotiable", "na"}:
+        raise HTTPException(status_code=400, detail="Salary range is mandatory and cannot be vague")
+
+    if not job.responsibilities or len(job.responsibilities.strip()) < 30:
+        raise HTTPException(status_code=400, detail="Detailed role responsibilities are required")
+
+    if not job.hiring_timeline or len(job.hiring_timeline.strip()) < 5:
+        raise HTTPException(status_code=400, detail="Hiring timeline is required")
+
+    if not job.actively_hiring:
+        raise HTTPException(status_code=400, detail="Hiring intent confirmation is required")
+
+    posted_expires_at = datetime.utcnow() + timedelta(days=30)
+    if job.application_deadline and job.application_deadline > posted_expires_at:
+        raise HTTPException(status_code=400, detail="Application deadline must be within 30 days of posting")
 
     db_job = Job(
         title=job.title,
@@ -123,13 +101,18 @@ def create_job(
         location=job.location,
         salary=job.salary,
         job_type=job.job_type,
+        responsibilities=job.responsibilities,
+        hiring_timeline=job.hiring_timeline,
+        actively_hiring=job.actively_hiring,
+        intent_confirmed_at=datetime.utcnow(),
         required_skills=job.required_skills,
         experience_required=job.experience_required,
         application_count=job.application_count,
         department=job.department,
-        status=resolved_status or normalize_job_status(is_active),
-        is_active=is_active,
+        status=job.status,
+        is_active=job.is_active,
         application_deadline=job.application_deadline,
+        posted_expires_at=posted_expires_at,
         created_by=current_user.id,
     )
 
@@ -137,77 +120,65 @@ def create_job(
     db.commit()
     db.refresh(db_job)
 
-    return _build_job_response(db_job, current_user=current_user, applications=[])
+    return _build_job_response(db_job, current_user=current_user, applications=[], db=db)
 
 
 @router.get("/", response_model=list[JobResponse])
 def get_jobs(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(100, ge=1, le=500, description="Number of records to return"),
-    is_active: bool | None = Query(None, description="Filter by active status"),
-    department: str = Query(None, description="Filter by department"),
-    status: str = Query(None, description="Filter by job status"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    is_active: bool | None = None,
+    department: str | None = None,
+    status: str | None = None,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user=Depends(get_current_user),
 ):
-    """
-    Get all jobs with pagination and filtering.
-    - Admins: See all jobs
-    - Recruiters: See only their own posted jobs
-    - Candidates: See all jobs with candidate-specific availability labels
-    
-    Optimized query with:
-    - Pagination (skip/limit)
-    - Filtering by is_active, department, status
-    - Ordered by most recent first
-    - Database-level filtering for performance
-    """
     query = db.query(Job)
-    
-    # Role-based filtering
+
     if current_user.role == "recruiter":
-        # Recruiters only see jobs they created
         query = query.filter(Job.created_by == current_user.id)
-    # Admins see all jobs
+    elif current_user.role == "candidate":
+        query = query.filter(Job.is_active == True)  # noqa: E712
+        query = query.filter((Job.posted_expires_at == None) | (Job.posted_expires_at > datetime.utcnow()))  # noqa: E711
 
-    resolved_is_active, resolved_status = _resolve_active_filters(is_active, status)
-
-    # Apply filters
-    if current_user.role != "candidate" and resolved_is_active is not None:
-        query = query.filter(Job.is_active == resolved_is_active)
-
+    if is_active is not None:
+        query = query.filter(Job.is_active == is_active)
     if department:
         query = query.filter(Job.department == department)
+    if status:
+        query = query.filter(Job.status == status)
 
-    if current_user.role != "candidate" and resolved_status:
-        query = query.filter(Job.status == resolved_status)
-
-    # Order by most recent first and apply pagination
     jobs = query.order_by(Job.created_at.desc()).offset(skip).limit(limit).all()
 
-    applications_map = _get_job_applications_map(db, [job.id for job in jobs])
+    now = datetime.utcnow()
+    touched = False
+    for job in jobs:
+        if job.posted_expires_at and job.posted_expires_at <= now and job.is_active:
+            job.is_active = False
+            job.status = "Inactive"
+            touched = True
+    if touched:
+        db.commit()
+
+    job_ids = [job.id for job in jobs]
+    apps = db.query(Application).filter(Application.job_id.in_(job_ids)).all() if job_ids else []
+    app_map: dict[int, list[Application]] = {}
+    for app in apps:
+        app_map.setdefault(app.job_id, []).append(app)
+
     return [
-        _build_job_response(
-            job,
-            current_user=current_user,
-            applications=applications_map.get(job.id, []),
-        )
+        _build_job_response(job, current_user=current_user, applications=app_map.get(job.id, []), db=db)
         for job in jobs
     ]
 
 
 @router.get("/{job_id}", response_model=JobResponse)
-def get_job_detail(
-    job_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    """Get a specific job by ID."""
+def get_job_detail(job_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     applications = db.query(Application).filter(Application.job_id == job_id).all()
-    return _build_job_response(job, current_user=current_user, applications=applications)
+    return _build_job_response(job, current_user=current_user, applications=applications, db=db)
 
 
 @router.put("/{job_id}", response_model=JobResponse)
@@ -217,7 +188,6 @@ def update_job(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Update a job posting. Admin and Recruiter only."""
     if current_user.role not in ["admin", "recruiter"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -225,24 +195,30 @@ def update_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    update_data = payload.model_dump(exclude_unset=True)
-    if "status" in update_data or "is_active" in update_data:
-        resolved_is_active, resolved_status = _resolve_active_filters(
-            update_data.get("is_active"),
-            update_data.get("status"),
-        )
-        if resolved_is_active is not None:
-            update_data["is_active"] = resolved_is_active
-            update_data["status"] = resolved_status or normalize_job_status(resolved_is_active)
+    if current_user.role == "recruiter" and job.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Cannot edit jobs posted by other recruiters")
 
-    # Only update fields that are explicitly provided
+    update_data = payload.model_dump(exclude_unset=True)
+
+    if "salary" in update_data and update_data["salary"]:
+        if update_data["salary"].strip().lower() in {"competitive", "negotiable", "na"}:
+            raise HTTPException(status_code=400, detail="Salary range is mandatory and cannot be vague")
+
+    if "responsibilities" in update_data and update_data["responsibilities"]:
+        if len(update_data["responsibilities"].strip()) < 30:
+            raise HTTPException(status_code=400, detail="Detailed role responsibilities are required")
+
+    if "application_deadline" in update_data and update_data["application_deadline"] and job.posted_expires_at:
+        if update_data["application_deadline"] > job.posted_expires_at:
+            raise HTTPException(status_code=400, detail="Application deadline must be within job expiry window")
+
     for field, value in update_data.items():
         setattr(job, field, value)
 
     db.commit()
     db.refresh(job)
-    applications = db.query(Application).filter(Application.job_id == job_id).all()
-    return _build_job_response(job, current_user=current_user, applications=applications)
+    applications = db.query(Application).filter(Application.job_id == job.id).all()
+    return _build_job_response(job, current_user=current_user, applications=applications, db=db)
 
 
 @router.delete("/{job_id}")
@@ -251,7 +227,6 @@ def delete_job(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Delete a job posting. Admin and Recruiter only. Cannot delete jobs with active applications."""
     if current_user.role not in ["admin", "recruiter"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -260,14 +235,14 @@ def delete_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Prevent deletion of jobs with applications
-    if job.application_count > 0:
-        raise HTTPException(
-            status_code=409, 
-            detail=f"Cannot delete job with {job.application_count} active application(s). Please review or reject all applications before deleting."
-        )
+    if current_user.role == "recruiter" and job.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Cannot delete jobs posted by other recruiters")
+
+    active_apps = db.query(Application).filter(Application.job_id == job_id, Application.status.in_(["applied", "shortlisted", "interview"])) .count()
+    if active_apps > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete job with {active_apps} active application(s)")
 
     db.delete(job)
     db.commit()
 
-    return {"message": "Job deleted successfully"}
+    return {"message": "Job deleted"}

@@ -29,7 +29,7 @@ const Jobs = () => {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [loadingMessage, setLoadingMessage] = useState("");
 
-  const [form, setForm] = useState<{ title: string; description: string; location: string; salary: string; department: string; job_type: "full-time" | "intern" | "contract"; required_skills: string; experience_required: string; status: "Active" | "Inactive"; application_deadline: string }>({ title: "", description: "", location: "", salary: "", department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active", application_deadline: "" });
+  const [form, setForm] = useState<{ title: string; description: string; location: string; salary: string; responsibilities: string; hiring_timeline: string; actively_hiring: boolean; department: string; job_type: "full-time" | "intern" | "contract"; required_skills: string; experience_required: string; status: "Active" | "Inactive"; application_deadline: string }>({ title: "", description: "", location: "", salary: "", responsibilities: "", hiring_timeline: "", actively_hiring: true, department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active", application_deadline: "" });
 
   // Load jobs from database on component mount
   useEffect(() => {
@@ -47,7 +47,7 @@ const Jobs = () => {
     loadJobsData();
   }, [loadJobs]);
 
-  const resetForm = () => setForm({ title: "", description: "", location: "", salary: "", department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active", application_deadline: "" });
+  const resetForm = () => setForm({ title: "", description: "", location: "", salary: "", responsibilities: "", hiring_timeline: "", actively_hiring: true, department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active", application_deadline: "" });
 
   const departments = ["All", ...new Set(jobs.map((j) => j.department))];
   const filtered = jobs.filter((j) => {
@@ -59,7 +59,7 @@ const Jobs = () => {
   const handleEdit = (jobId: string) => {
     const job = jobs.find((j) => j.id === jobId);
     if (!job) return;
-    setForm({ title: job.title, description: job.description, location: job.location, salary: job.salary, department: job.department, job_type: job.job_type, required_skills: job.required_skills.join(", "), experience_required: job.experience_required, status: job.is_active ? "Active" : "Inactive", application_deadline: formatDateInputValue(job.application_deadline) });
+    setForm({ title: job.title, description: job.description, location: job.location, salary: job.salary, responsibilities: job.responsibilities || "", hiring_timeline: job.hiring_timeline || "", actively_hiring: job.actively_hiring ?? true, department: job.department, job_type: job.job_type, required_skills: job.required_skills.join(", "), experience_required: job.experience_required, status: job.is_active ? "Active" : "Inactive", application_deadline: formatDateInputValue(job.application_deadline) });
     setEditingJob(jobId);
     setMenuOpen(null);
   };
@@ -73,6 +73,9 @@ const Jobs = () => {
         description: form.description,
         location: form.location,
         salary: form.salary,
+        responsibilities: form.responsibilities,
+        hiring_timeline: form.hiring_timeline,
+        actively_hiring: form.actively_hiring,
         department: form.department,
         job_type: form.job_type,
         required_skills: form.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
@@ -159,6 +162,16 @@ const Jobs = () => {
                 <div className="flex items-center gap-3">
                   <h3 className="font-semibold text-foreground">{job.title}</h3>
                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${job.recruiter_status === "Active" ? "bg-emerald-50 text-emerald-600" : job.recruiter_status === "Deadline Passed" ? "bg-amber-50 text-amber-700" : "bg-muted text-muted-foreground"}`}>{job.recruiter_status || job.status}</span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${job.company_verification_level === "trusted" ? "bg-emerald-500/10 text-emerald-700" : job.company_verification_level === "verified" ? "bg-violet-500/10 text-violet-700" : "bg-muted text-muted-foreground"}`}>
+                    {job.company_verification_level === "trusted" ? "Trusted" : job.company_verification_level === "verified" ? "Verified" : "Basic"}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+                    Trust {job.company_trust_score || 0}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
+                    Response {job.recruiter_response_rate || 0}%
+                  </span>
+                  {job.is_flagged && <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-700">Risk Flag</span>}
                 </div>
                 <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                   <span>{job.department}</span>
@@ -211,6 +224,20 @@ const Jobs = () => {
             <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Description</label>
               <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow resize-none" />
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <label className="text-sm font-medium text-foreground mb-1.5 block">Responsibilities</label>
+                <textarea value={form.responsibilities} onChange={(e) => setForm({ ...form, responsibilities: e.target.value })} rows={2} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow resize-none" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-foreground mb-1.5 block">Hiring Timeline</label>
+                <input value={form.hiring_timeline} onChange={(e) => setForm({ ...form, hiring_timeline: e.target.value })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none" />
+              </div>
+              <label className="inline-flex items-center gap-2 text-sm text-foreground">
+                <input type="checkbox" checked={form.actively_hiring} onChange={(e) => setForm({ ...form, actively_hiring: e.target.checked })} className="h-4 w-4 rounded border-border" />
+                Actively hiring confirmation
+              </label>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

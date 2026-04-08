@@ -6,22 +6,22 @@ import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
 
 const CandidateApplications = () => {
-  const { user, applications, jobs, interviews, loadApplications, loadInterviews, isLoading } = useStore();
+  const { user, applications, jobs, interviews, loadApplications, loadInterviews, loadJobs, isLoading } = useStore();
 
   // Load applications from API on component mount
   useEffect(() => {
     const loadApps = async () => {
       try {
-        await Promise.all([loadApplications(), loadInterviews(true)]);
+        await Promise.all([loadApplications(), loadInterviews(true), loadJobs()]);
       } catch (error) {
         console.error("Error loading applications:", error);
         toast({ title: "Error", description: "Failed to load applications", variant: "destructive" });
       }
     };
     loadApps();
-  }, [loadApplications, loadInterviews]);
+  }, [loadApplications, loadInterviews, loadJobs]);
 
-  const myApps = applications.filter((a) => a.user_id === user.id);
+  const myApps = applications.filter((a) => String(a.user_id) === String(user.id));
   const activeApps = myApps.filter((a) => !["selected", "rejected"].includes(a.status));
   const closedApps = myApps.filter((a) => ["selected", "rejected"].includes(a.status));
 
@@ -47,6 +47,12 @@ const CandidateApplications = () => {
 
   return (
     <PageLayout>
+      {isLoading && myApps.length === 0 && (
+        <div className="mb-6 rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground shadow-card">
+          Loading your applications...
+        </div>
+      )}
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">My Applications</h1>

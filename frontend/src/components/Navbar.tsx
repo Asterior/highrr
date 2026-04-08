@@ -12,6 +12,7 @@ const navItems = [
   { label: "Interviews", path: "/interviews" },
   { label: "Messages", path: "/messages" },
   { label: "Analytics", path: "/analytics" },
+  { label: "Verification Queue", path: "/verification-queue" },
 ];
 
 const Navbar = () => {
@@ -27,7 +28,7 @@ const Navbar = () => {
         </Link>
 
         <div className="hidden lg:flex items-center gap-1">
-          {navItems.map((item) => {
+          {navItems.filter((item) => item.path !== "/verification-queue" || user.role === "admin").map((item) => {
             const isActive = location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path));
             return (
               <Link

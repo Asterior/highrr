@@ -10,8 +10,10 @@ from app.core.security import hash_password
 from app.db.session import SessionLocal, engine
 from app.models.application import Application
 from app.models.candidate_profile import CandidateProfile, CandidateSkill
+from app.models.company_verification import CompanyVerification
 from app.models.interview import Interview
 from app.models.job import Job
+from app.models.recruiter_reputation import RecruiterReputation
 from app.models.user import User
 
 
@@ -33,6 +35,9 @@ def clear_tables(db):
         "educations",
         "work_experiences",
         "candidate_profiles",
+        "user_reports",
+        "recruiter_reputations",
+        "company_verifications",
         "jobs",
         "users",
     ]
@@ -45,6 +50,7 @@ def clear_tables(db):
 def seed_users(db):
     users = [
         User(name="Ananya", email="ananya@gmail.com", password=hash_password("ananya123"), role="recruiter"),
+        User(name="Fresh Recruiter", email="fresh.recruiter@demohr.com", password=hash_password("FreshRecruiter123"), role="recruiter"),
         User(name="Nikhil", email="nikhil@gmail.com", password=hash_password("nikhil123"), role="candidate"),
         User(name="Hitesh", email="hitesh@gmail.com", password=hash_password("hitesh123"), role="candidate"),
         User(name="Praveen", email="praveen@gmail.com", password=hash_password("praveen123"), role="candidate"),
@@ -91,6 +97,38 @@ def seed_jobs(db, users):
     db.add_all(jobs)
     db.flush()
     return jobs
+
+
+def seed_trust(db, users):
+    recruiter = users["Ananya"]
+    db.add(
+        CompanyVerification(
+            recruiter_id=recruiter.id,
+            company_name="Ananya Talent Pvt Ltd",
+            company_domain="ananyahr.in",
+            company_email="ananya@ananyahr.in",
+            website_url="https://ananyahr.in",
+            verification_level="verified",
+            trust_score=72,
+            domain_verified=True,
+            domain_otp_verified=True,
+            business_registration_verified=True,
+            business_registry_id="GSTIN-DEMO-ANANYA-01",
+            business_country="India",
+            website_quality_score=9,
+            office_proof_verified=True,
+            employee_presence_score=8,
+            last_assessed_at=datetime.utcnow(),
+        )
+    )
+    db.add(
+        RecruiterReputation(
+            recruiter_id=recruiter.id,
+            response_rate=87.0,
+            hiring_success_rate=24.0,
+            avg_response_hours=11.5,
+        )
+    )
 
 
 def seed_profiles(db, users):
@@ -199,12 +237,14 @@ def main():
     try:
         clear_tables(db)
         users = seed_users(db)
+        seed_trust(db, users)
         jobs = seed_jobs(db, users)
         seed_profiles(db, users)
         seed_applications_and_interviews(db, users, jobs)
         db.commit()
         print("Database reset and seed complete.")
         print("Recruiter login: ananya@gmail.com / ananya123")
+        print("Unverified recruiter login: fresh.recruiter@demohr.com / FreshRecruiter123")
         print("Candidate logins: nikhil@gmail.com / nikhil123, hitesh@gmail.com / hitesh123, praveen@gmail.com / praveen123")
     except Exception:
         db.rollback()

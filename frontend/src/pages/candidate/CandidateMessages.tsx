@@ -6,8 +6,11 @@ import PageLayout from "@/components/PageLayout";
 
 const CandidateMessages = () => {
   const { conversations, sendMessage, user } = useStore();
-  // For candidates, show conversations where they are a participant
-  const myConversations = conversations.filter((c) => c.participant_id === user.id || c.messages.some((m) => m.sender_id === user.id || m.receiver_id === user.id));
+  const currentUserId = String(user.id);
+  const myConversations = conversations.filter((c) =>
+    String(c.participant_id) === currentUserId ||
+    c.messages.some((m) => String(m.sender_id) === currentUserId || String(m.receiver_id) === currentUserId)
+  );
 
   const [activeChatId, setActiveChatId] = useState(myConversations[0]?.id || "");
   const [newMessage, setNewMessage] = useState("");
@@ -16,6 +19,15 @@ const CandidateMessages = () => {
 
   const activeConv = myConversations.find((c) => c.id === activeChatId);
   const filteredConvs = myConversations.filter((c) => c.participant_name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  useEffect(() => {
+    if (!activeChatId && filteredConvs.length > 0) {
+      setActiveChatId(filteredConvs[0].id);
+    }
+    if (activeChatId && !filteredConvs.some((c) => c.id === activeChatId) && filteredConvs.length > 0) {
+      setActiveChatId(filteredConvs[0].id);
+    }
+  }, [activeChatId, filteredConvs]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -49,7 +61,9 @@ const CandidateMessages = () => {
             </div>
             <div className="flex-1 overflow-y-auto">
               {filteredConvs.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-8">No conversations yet</p>
+                <div className="h-full flex items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                  No conversations yet. Start from an application thread or shortlist card.
+                </div>
               )}
               {filteredConvs.map((c) => (
                 <button key={c.id} onClick={() => setActiveChatId(c.id)} className={`w-full flex items-center gap-3 p-4 text-left transition-colors ${activeChatId === c.id ? "bg-secondary" : "hover:bg-muted"}`}>

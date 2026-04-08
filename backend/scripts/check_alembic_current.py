@@ -1,8 +1,7 @@
 import os
+import importlib
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
@@ -10,9 +9,21 @@ from sqlalchemy.engine import make_url
 
 def main() -> None:
     load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
-    cfg = Config("alembic.ini")
+    try:
+        alembic_command = importlib.import_module("alembic.command")
+        alembic_config_module = importlib.import_module("alembic.config")
+    except ModuleNotFoundError:
+        print("Alembic is not installed. Install with: pip install alembic")
+        return
+
+    alembic_ini = Path(__file__).resolve().parents[1] / "alembic.ini"
+    if not alembic_ini.exists():
+        print(f"alembic.ini not found at {alembic_ini}")
+        return
+
+    cfg = alembic_config_module.Config(str(alembic_ini))
     print("== Alembic current ==")
-    command.current(cfg, verbose=True)
+    alembic_command.current(cfg, verbose=True)
 
     database_url = os.getenv("DATABASE_URL")
     if not database_url:

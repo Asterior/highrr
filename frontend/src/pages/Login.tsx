@@ -297,14 +297,26 @@ const Login = () => {
 
           <div className="mt-6 pt-5 border-t text-center" style={{ borderColor: "#f3f4f6" }}>
             <p className="text-sm" style={{ color: "#6b7280" }}>
-              Don't have an account?{" "}
+              New here?{" "}
               <span
                 className="font-semibold cursor-pointer"
                 style={{ color: "#4f46e5" }}
-                onClick={() => toast({ title: "Contact your admin to create an account." })}
+                onClick={() => navigate("/register-recruiter")}
               >
-                Register as a Student
+                Register as Recruiter
               </span>
+            </p>
+            <p className="text-sm mt-1" style={{ color: "#6b7280" }}>
+              <span
+                className="font-semibold cursor-pointer"
+                style={{ color: "#4f46e5" }}
+                onClick={() => navigate("/register-student")}
+              >
+                Register as Student
+              </span>
+            </p>
+            <p className="text-xs mt-2" style={{ color: "#9ca3af" }}>
+              Existing recruiters and candidates can continue using normal login.
             </p>
           </div>
         </motion.div>

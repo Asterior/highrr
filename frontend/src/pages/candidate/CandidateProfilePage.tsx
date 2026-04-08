@@ -330,7 +330,7 @@ const CandidateProfilePage = () => {
   return (
     <PageLayout>
       {/* Header */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-600 rounded-3xl p-8 mb-8 shadow-2xl">
+      <div className="relative overflow-hidden bg-gradient-to-br from-violet-600 via-violet-700 to-indigo-700 rounded-3xl p-8 mb-8 shadow-2xl">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0icmdiYSgyNTUsMjU1LDI1NSwwLjEpIiBzdHJva2Utd2lkdGg9IjEiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] opacity-30"></div>
         
         <div className="relative flex items-start justify-between">
@@ -407,30 +407,30 @@ const CandidateProfilePage = () => {
           icon={<Briefcase className="w-5 h-5" />}
           label="Experience"
           value={`${profile.total_experience_years} years`}
-          color="from-blue-500 to-cyan-500"
+          color="from-violet-600 to-indigo-600"
         />
         <StatCard 
           icon={<GraduationCap className="w-5 h-5" />}
           label="Education"
           value={profile.educations.length}
-          color="from-green-500 to-emerald-500"
+          color="from-violet-500 to-violet-700"
         />
         <StatCard 
           icon={<Code2 className="w-5 h-5" />}
           label="Skills"
           value={profile.skills.length}
-          color="from-purple-500 to-pink-500"
+          color="from-indigo-500 to-violet-600"
         />
         <StatCard 
           icon={<Award className="w-5 h-5" />}
           label="Projects"
           value={profile.projects.length}
-          color="from-orange-500 to-red-500"
+          color="from-slate-600 to-indigo-700"
         />
       </div>
 
       {/* Tabs */}
-      <div className="bg-card border border-border rounded-2xl p-2 mb-6 shadow-sm">
+      <div className="sticky top-20 z-20 bg-card/95 backdrop-blur border border-border rounded-2xl p-2 mb-6 shadow-sm">
         <div className="flex gap-2 overflow-x-auto">
           {(['overview', 'experience', 'education', 'skills', 'projects', 'certifications'] as const).map(tab => (
             <button

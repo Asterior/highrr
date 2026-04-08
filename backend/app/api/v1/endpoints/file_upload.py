@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 from app.db.session import get_db
 from app.api.deps import get_current_user
+from app.core.ats_engine import build_candidate_ats_snapshot
 from app.models.user import User
 from app.models.candidate_profile import CandidateProfile, Resume, Certification
 from app.schemas.candidate_profile import ResumeCreate, ResumeResponse
@@ -145,6 +146,26 @@ async def upload_resume(
     db.refresh(resume)
     
     return resume
+
+
+@router.get("/resumes", response_model=list[ResumeResponse])
+def list_my_resumes(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    profile = db.query(CandidateProfile).filter(CandidateProfile.user_id == current_user.id).first()
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found. Create a profile first.",
+        )
+
+    return (
+        db.query(Resume)
+        .filter(Resume.profile_id == profile.id)
+        .order_by(Resume.created_at.desc())
+        .all()
+    )
 
 
 @router.post("/avatar")
@@ -318,17 +339,15 @@ def delete_resume(
 @router.post("/ats-score/{resume_id}")
 async def update_ats_score(
     resume_id: int,
-    ats_score: float,
-    ats_feedback: dict = {},
+    job_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Update ATS score for a resume (this will be called by your ATS analysis service)
+    Refresh ATS score for a resume using the platform ATS engine.
     
     - **resume_id**: Resume ID
-    - **ats_score**: Score from 0-100
-    - **ats_feedback**: Detailed feedback from ATS analysis
+    - **job_id**: Optional specific job id to evaluate against
     """
     resume = db.query(Resume).filter(Resume.id == resume_id).first()
     
@@ -346,16 +365,26 @@ async def update_ats_score(
             detail="Not authorized to update this resume"
         )
     
-    # Update ATS score
-    resume.ats_score = ats_score
-    resume.ats_feedback = ats_feedback
-    resume.is_ats_optimized = ats_score >= 75  # Consider 75+ as optimized
+    try:
+        snapshot = build_candidate_ats_snapshot(db, current_user.id, job_id=job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    resume.ats_score = snapshot["average_score"]
+    resume.ats_feedback = {
+        "source": "analytics_engine",
+        "job_id": job_id,
+        "total_jobs_evaluated": snapshot["total_jobs_evaluated"],
+        "top_recommendations": snapshot["top_recommendations"],
+        "results": snapshot["results"][:5],
+    }
+    resume.is_ats_optimized = resume.ats_score >= 75
     
     db.commit()
     db.refresh(resume)
     
     return {
-        "message": "ATS score updated successfully",
+        "message": "ATS score refreshed successfully",
         "resume_id": resume.id,
         "ats_score": resume.ats_score,
         "is_ats_optimized": resume.is_ats_optimized

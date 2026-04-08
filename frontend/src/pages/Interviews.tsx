@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Calendar, List, Plus, Clock, User, Briefcase, Trash2 } from "lucide-react";
+import { LayoutGrid, List, Plus, Clock, User, Briefcase, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStore } from "@/stores/useStore";
 import { toast } from "@/hooks/use-toast";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 
 const Interviews = () => {
   const { interviews, addInterview, deleteInterview, applications } = useStore();
-  const [view, setView] = useState<"list" | "calendar">("list");
+  const [view, setView] = useState<"list" | "grid">("list");
   const [showSchedule, setShowSchedule] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [form, setForm] = useState({ application_id: "", interviewer_name: "", scheduled_at: "", interview_type: "technical" as const, notes: "" });
@@ -49,17 +49,17 @@ const Interviews = () => {
 
   return (
     <PageLayout>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Interviews</h1>
           <p className="text-muted-foreground mt-1">{scheduled.length} upcoming interviews</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:gap-3 lg:w-auto">
           <div className="flex bg-muted rounded-xl p-1">
             <button onClick={() => setView("list")} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${view === "list" ? "bg-card text-foreground shadow-card" : "text-muted-foreground"}`}><List className="w-4 h-4" /></button>
-            <button onClick={() => setView("calendar")} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${view === "calendar" ? "bg-card text-foreground shadow-card" : "text-muted-foreground"}`}><Calendar className="w-4 h-4" /></button>
+            <button onClick={() => setView("grid")} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${view === "grid" ? "bg-card text-foreground shadow-card" : "text-muted-foreground"}`}><LayoutGrid className="w-4 h-4" /></button>
           </div>
-          <button onClick={() => setShowSchedule(true)} className="gradient-primary text-primary-foreground px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 hover-lift">
+          <button onClick={() => setShowSchedule(true)} className="gradient-primary text-primary-foreground px-4 sm:px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 hover-lift whitespace-nowrap">
             <Plus className="w-4 h-4" /> Schedule Interview
           </button>
         </div>
@@ -67,12 +67,13 @@ const Interviews = () => {
 
       <div className="grid gap-4 mt-8">
         {scheduled.length > 0 && <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Upcoming</h2>}
+        <div className={view === "grid" ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" : "space-y-4"}>
         <AnimatePresence>
           {scheduled.map((interview, i) => (
-            <motion.div key={interview.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: i * 0.06 }} className="bg-card rounded-2xl border border-border p-6 shadow-card hover-lift">
+            <motion.div key={interview.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: i * 0.06 }} className={view === "list" ? "bg-card rounded-2xl border border-border p-6 shadow-card hover-lift" : "bg-card rounded-2xl border border-violet-200/30 p-5 shadow-card hover-lift"}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-semibold text-sm">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-primary-foreground font-semibold text-sm">
                     {interview.candidate_name.split(" ").map((n) => n[0]).join("")}
                   </div>
                   <div>
@@ -91,7 +92,7 @@ const Interviews = () => {
                     </div>
                     <div className="flex items-center gap-2 mt-1 justify-end">
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-secondary text-accent-foreground">{interview.interview_type}</span>
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-600">{interview.status}</span>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-violet-500/10 text-violet-700 border border-violet-500/20">{interview.status}</span>
                     </div>
                   </div>
                   <button onClick={() => setDeleteConfirm(interview.id)} className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-destructive">
@@ -102,10 +103,12 @@ const Interviews = () => {
             </motion.div>
           ))}
         </AnimatePresence>
+        </div>
 
         {completed.length > 0 && <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mt-4">Completed</h2>}
+        <div className={view === "grid" ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" : "space-y-4"}>
         {completed.map((interview, i) => (
-          <motion.div key={interview.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-card rounded-2xl border border-border p-6 shadow-card opacity-70">
+          <motion.div key={interview.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-card rounded-2xl border border-violet-200/30 p-6 shadow-card opacity-80">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground font-semibold text-sm">
                 {interview.candidate_name.split(" ").map((n) => n[0]).join("")}
@@ -114,10 +117,11 @@ const Interviews = () => {
                 <h3 className="font-semibold text-foreground">{interview.candidate_name}</h3>
                 <p className="text-sm text-muted-foreground">{interview.job_title} · {interview.interviewer_name}</p>
               </div>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-600">completed</span>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-violet-500/10 text-violet-700 border border-violet-500/20">completed</span>
             </div>
           </motion.div>
         ))}
+        </div>
       </div>
 
       {/* Schedule modal */}

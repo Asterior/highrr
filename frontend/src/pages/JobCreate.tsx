@@ -28,6 +28,9 @@ const JobCreate = () => {
     description: "",
     location: "",
     salary: "",
+    responsibilities: "",
+    hiring_timeline: "",
+    actively_hiring: true,
     department: "Engineering",
     job_type: "full-time" as "full-time" | "intern" | "contract",
     required_skills: "",
@@ -43,8 +46,8 @@ const JobCreate = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.title.trim() || !form.description.trim() || !form.application_deadline) {
-      toast({ title: "Missing required fields", description: "Title, description, and last application date are required.", variant: "destructive" });
+    if (!form.title.trim() || !form.description.trim() || !form.application_deadline || !form.salary.trim() || form.responsibilities.trim().length < 30 || !form.hiring_timeline.trim()) {
+      toast({ title: "Missing required fields", description: "Title, description, salary range, responsibilities, hiring timeline, and last application date are required.", variant: "destructive" });
       return;
     }
     
@@ -55,6 +58,9 @@ const JobCreate = () => {
         description: form.description,
         location: form.location,
         salary: form.salary,
+        responsibilities: form.responsibilities,
+        hiring_timeline: form.hiring_timeline,
+        actively_hiring: form.actively_hiring,
         department: form.department,
         job_type: form.job_type,
         required_skills: form.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
@@ -132,10 +138,10 @@ const JobCreate = () => {
 
         {/* Company Info */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-card rounded-2xl border border-border p-6 shadow-card">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Compensation, Type & Availability</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-4">Compensation, Type & Hiring Intent</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <div>
-              <label className="text-sm font-medium text-foreground mb-1.5 block">Salary</label>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Salary Range *</label>
               <input value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} placeholder="e.g. ₹25-35 LPA" className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow" />
             </div>
             <div>
@@ -162,6 +168,37 @@ const JobCreate = () => {
                 className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow"
               />
               <p className="text-xs text-muted-foreground mt-1">Applications will be closed automatically after this date.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Role Responsibilities *</label>
+              <textarea
+                value={form.responsibilities}
+                onChange={(e) => setForm({ ...form, responsibilities: e.target.value })}
+                rows={3}
+                placeholder="Add clear role responsibilities (min 30 characters)"
+                className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow resize-none"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Hiring Timeline *</label>
+              <input
+                value={form.hiring_timeline}
+                onChange={(e) => setForm({ ...form, hiring_timeline: e.target.value })}
+                placeholder="e.g. Screening this week, final round in 2 weeks"
+                className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow"
+              />
+              <label className="mt-3 inline-flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={form.actively_hiring}
+                  onChange={(e) => setForm({ ...form, actively_hiring: e.target.checked })}
+                  className="h-4 w-4 rounded border-border"
+                />
+                I confirm we are actively hiring for this role
+              </label>
             </div>
           </div>
         </motion.div>

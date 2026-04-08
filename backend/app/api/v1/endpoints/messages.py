@@ -8,6 +8,7 @@ from app.api.deps import get_current_user
 from app.db.deps import get_db
 from app.models.conversation import Conversation
 from app.models.message import Message
+from app.models.user_report import UserReport
 from app.models.user import User
 from app.schemas.message import (
     ConversationCreate,
@@ -17,6 +18,24 @@ from app.schemas.message import (
 )
 
 router = APIRouter()
+
+SUSPICIOUS_KEYWORDS = [
+    "pay",
+    "payment",
+    "processing fee",
+    "registration fee",
+    "upi",
+    "bank transfer",
+    "telegram",
+    "whatsapp",
+    "dm me",
+    "contact me on",
+]
+
+
+def _is_suspicious_message(content: str) -> bool:
+    lowered = content.lower()
+    return any(keyword in lowered for keyword in SUSPICIOUS_KEYWORDS)
 
 
 @router.get("/conversations/", response_model=list[ConversationResponse])
@@ -116,6 +135,13 @@ def send_message(
     if payload.receiver_id not in [conv.participant_one_id, conv.participant_two_id]:
         raise HTTPException(status_code=400, detail="Receiver does not belong to conversation")
 
+    sender = db.query(User).filter(User.id == current_user.id).first()
+    receiver = db.query(User).filter(User.id == payload.receiver_id).first()
+    if not sender or not receiver:
+        raise HTTPException(status_code=404, detail="Sender or receiver not found")
+
+    suspicious = _is_suspicious_message(payload.message)
+
     msg = Message(
         conversation_id=conversation_id,
         sender_id=current_user.id,
@@ -127,6 +153,17 @@ def send_message(
     conv.last_message_time = datetime.utcnow()
 
     db.add(msg)
+
+    if suspicious and sender.role in {"recruiter", "admin"} and receiver.role == "candidate":
+        db.add(
+            UserReport(
+                reporter_id=receiver.id,
+                recruiter_id=sender.id,
+                category="scam",
+                details=f"Auto-flagged suspicious recruiter message: {payload.message[:180]}",
+            )
+        )
+
     db.commit()
     db.refresh(msg)
     return msg
