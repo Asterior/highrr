@@ -10,11 +10,18 @@ export interface Job {
   required_skills: string[];
   experience_required: string;
   is_active: boolean;
+  application_deadline?: string | null;
   created_by: string;
   created_at: string;
   application_count: number;
   department: string;
-  status: "Active" | "Draft" | "Paused";
+  status: string;
+  recruiter_status?: string;
+  candidate_status?: string;
+  has_applied?: boolean;
+  can_apply?: boolean;
+  deadline_passed?: boolean;
+  applications_label?: string;
 }
 
 export interface Application {

@@ -7,6 +7,17 @@ import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
 import { Button } from "@/components/ui/button";
 
+const formatDateInputValue = (value?: string | null) => {
+  if (!value) return "";
+  const date = new Date(value);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const toDeadlineIso = (value: string) => new Date(`${value}T23:59:59`).toISOString();
+
 const JobCreate = () => {
   const navigate = useNavigate();
   const { addJob, isLoading } = useStore();
@@ -21,7 +32,8 @@ const JobCreate = () => {
     job_type: "full-time" as "full-time" | "intern" | "contract",
     required_skills: "",
     experience_required: "",
-    status: "Active" as "Active" | "Draft" | "Paused",
+    status: "Active" as "Active" | "Inactive",
+    application_deadline: "",
   });
 
   const [customFields, setCustomFields] = useState<{ label: string; value: string }[]>([]);
@@ -31,8 +43,8 @@ const JobCreate = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.title.trim() || !form.description.trim()) {
-      toast({ title: "Missing required fields", description: "Title and description are required.", variant: "destructive" });
+    if (!form.title.trim() || !form.description.trim() || !form.application_deadline) {
+      toast({ title: "Missing required fields", description: "Title, description, and last application date are required.", variant: "destructive" });
       return;
     }
     
@@ -49,6 +61,7 @@ const JobCreate = () => {
         experience_required: form.experience_required,
         is_active: form.status === "Active",
         status: form.status,
+        application_deadline: toDeadlineIso(form.application_deadline),
       });
       toast({ title: "Job created!", description: `${form.title} has been posted.` });
       navigate("/jobs");
@@ -119,8 +132,8 @@ const JobCreate = () => {
 
         {/* Company Info */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-card rounded-2xl border border-border p-6 shadow-card">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Compensation & Type</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <h2 className="text-lg font-semibold text-foreground mb-4">Compensation, Type & Availability</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Salary</label>
               <input value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} placeholder="e.g. ₹25-35 LPA" className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow" />
@@ -137,9 +150,18 @@ const JobCreate = () => {
               <label className="text-sm font-medium text-foreground mb-1.5 block">Status</label>
               <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as any })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
                 <option>Active</option>
-                <option>Draft</option>
-                <option>Paused</option>
+                <option>Inactive</option>
               </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Last Date to Apply *</label>
+              <input
+                type="date"
+                value={formatDateInputValue(form.application_deadline)}
+                onChange={(e) => setForm({ ...form, application_deadline: e.target.value })}
+                className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Applications will be closed automatically after this date.</p>
             </div>
           </div>
         </motion.div>

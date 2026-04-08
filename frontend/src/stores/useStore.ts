@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { Job, Application, Interview, Conversation, CurrentUser, Message, isValidTransition, PipelineStatus, UserRole } from "@/data/types";
+import { Job, Application, Interview, Conversation, CurrentUser, Message, isValidTransition, PipelineStatus } from "@/data/types";
 import { mockConversations, currentUser } from "@/data/mockData";
 import {
   getJobs,
@@ -26,7 +26,19 @@ interface AppState {
 
   jobs: Job[];
   loadJobs: () => Promise<void>;
-  addJob: (job: Omit<Job, "id" | "created_at" | "application_count" | "created_by">) => Promise<void>;
+  addJob: (job: {
+    title: string;
+    description: string;
+    location?: string;
+    salary?: string;
+    department?: string;
+    job_type: Job["job_type"];
+    required_skills: string[];
+    experience_required?: string;
+    status: string;
+    is_active: boolean;
+    application_deadline: string;
+  }) => Promise<void>;
   updateJob: (id: string, data: Partial<Job>) => Promise<void>;
   deleteJob: (id: string) => Promise<void>;
 
@@ -67,6 +79,30 @@ interface AppState {
 let idCounter = 100;
 const genId = (prefix: string) => `${prefix}-${++idCounter}`;
 
+const mapJobFromApi = (job: any): Job => ({
+  id: job.id.toString(),
+  title: job.title,
+  description: job.description,
+  location: job.location,
+  salary: job.salary,
+  job_type: job.job_type,
+  required_skills: job.required_skills || [],
+  experience_required: job.experience_required,
+  is_active: job.is_active,
+  application_deadline: job.application_deadline || null,
+  created_by: job.created_by.toString(),
+  created_at: job.created_at,
+  application_count: job.application_count || 0,
+  department: job.department || "Engineering",
+  status: job.status || "Inactive",
+  recruiter_status: job.recruiter_status || job.status || "Inactive",
+  candidate_status: job.candidate_status || job.status || "Inactive",
+  has_applied: Boolean(job.has_applied),
+  can_apply: Boolean(job.can_apply),
+  deadline_passed: Boolean(job.deadline_passed),
+  applications_label: job.applications_label || "No applications received",
+});
+
 export const useStore = create<AppState>((set, get) => ({
   user: currentUser,
   isAuthenticated: false,
@@ -91,27 +127,8 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       set({ isLoading: true });
       const token = localStorage.getItem("token");
-      const jobsData = await getJobs(token, 0, 100, true);
-      
-      // Convert API response (with numeric IDs) to frontend format (with string IDs)
-      const convertedJobs: Job[] = jobsData.map((job: any) => ({
-        id: job.id.toString(),
-        title: job.title,
-        description: job.description,
-        location: job.location,
-        salary: job.salary,
-        job_type: job.job_type,
-        required_skills: job.required_skills || [],
-        experience_required: job.experience_required,
-        is_active: job.is_active,
-        created_by: job.created_by.toString(),
-        created_at: job.created_at,
-        application_count: job.application_count || 0,
-        department: job.department || "Engineering",
-        status: job.status || "Active",
-      }));
-      
-      set({ jobs: convertedJobs });
+      const jobsData = await getJobs(token, 0, 100);
+      set({ jobs: jobsData.map(mapJobFromApi) });
     } catch (error) {
       console.error("Failed to load jobs:", error);
       set({ jobs: [] });
@@ -141,29 +158,11 @@ export const useStore = create<AppState>((set, get) => ({
           department: job.department,
           status: job.status,
           is_active: job.is_active,
+          application_deadline: job.application_deadline,
         },
         token
       );
-      
-      // Convert response to frontend format
-      const newJob: Job = {
-        id: newJobData.id.toString(),
-        title: newJobData.title,
-        description: newJobData.description,
-        location: newJobData.location,
-        salary: newJobData.salary,
-        job_type: newJobData.job_type,
-        required_skills: newJobData.required_skills || [],
-        experience_required: newJobData.experience_required,
-        is_active: newJobData.is_active,
-        created_by: newJobData.created_by.toString(),
-        created_at: newJobData.created_at,
-        application_count: newJobData.application_count || 0,
-        department: newJobData.department || "Engineering",
-        status: newJobData.status || "Active",
-      };
-      
-      set((s) => ({ jobs: [newJob, ...s.jobs] }));
+      set((s) => ({ jobs: [mapJobFromApi(newJobData), ...s.jobs] }));
     } catch (error) {
       console.error("Failed to create job:", error);
       throw error;
@@ -192,12 +191,12 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.department !== undefined) updatePayload.department = data.department;
       if (data.status !== undefined) updatePayload.status = data.status;
       if (data.is_active !== undefined) updatePayload.is_active = data.is_active;
-      
-      await updateJobAPI(id, updatePayload, token);
-      
-      // Update local state
+      if (data.application_deadline !== undefined) updatePayload.application_deadline = data.application_deadline;
+
+      const updatedJob = await updateJobAPI(id, updatePayload, token);
+
       set((s) => ({
-        jobs: s.jobs.map((j) => (j.id === id ? { ...j, ...data } : j)),
+        jobs: s.jobs.map((j) => (j.id === id ? mapJobFromApi(updatedJob) : j)),
       }));
     } catch (error) {
       console.error("Failed to update job:", error);
@@ -387,7 +386,18 @@ export const useStore = create<AppState>((set, get) => ({
 
       set((s) => ({
         applications: [...s.applications, newApp],
-        jobs: s.jobs.map((j) => (j.id === jobId ? { ...j, application_count: j.application_count + 1 } : j)),
+        jobs: s.jobs.map((j) => {
+          if (j.id !== jobId) return j;
+          const nextCount = j.application_count + 1;
+          return {
+            ...j,
+            application_count: nextCount,
+            has_applied: true,
+            can_apply: false,
+            candidate_status: "Applied",
+            applications_label: nextCount === 1 ? "1 application" : `${nextCount} applications`,
+          };
+        }),
       }));
       return true;
     } catch (error) {

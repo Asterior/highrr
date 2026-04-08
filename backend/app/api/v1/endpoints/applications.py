@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.job_status import can_accept_applications, normalize_job_status
 from app.db.deps import get_db
 from app.models.application import Application
 from app.models.candidate_profile import CandidateProfile
@@ -29,6 +30,9 @@ def apply_job(
     job = db.query(Job).filter(Job.id == application.job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    if not can_accept_applications(job.is_active, job.application_deadline):
+        raise HTTPException(status_code=400, detail="Applications are closed for this job")
 
     existing = db.query(Application).filter(
         Application.user_id == current_user.id,
@@ -81,6 +85,7 @@ def apply_job(
 
     db.add(db_app)
     job.application_count = (job.application_count or 0) + 1
+    job.status = normalize_job_status(job.is_active)
     db.commit()
     db.refresh(db_app)
 

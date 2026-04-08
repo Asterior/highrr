@@ -8,6 +8,17 @@ import PageLayout from "@/components/PageLayout";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
+const formatDateInputValue = (value?: string | null) => {
+  if (!value) return "";
+  const date = new Date(value);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const toDeadlineIso = (value: string) => new Date(`${value}T23:59:59`).toISOString();
+
 const Jobs = () => {
   const navigate = useNavigate();
   const { jobs, loadJobs, updateJob, deleteJob, isLoading } = useStore();
@@ -18,7 +29,7 @@ const Jobs = () => {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [loadingMessage, setLoadingMessage] = useState("");
 
-  const [form, setForm] = useState<{ title: string; description: string; location: string; salary: string; department: string; job_type: "full-time" | "intern" | "contract"; required_skills: string; experience_required: string; status: "Active" | "Draft" | "Paused" }>({ title: "", description: "", location: "", salary: "", department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active" });
+  const [form, setForm] = useState<{ title: string; description: string; location: string; salary: string; department: string; job_type: "full-time" | "intern" | "contract"; required_skills: string; experience_required: string; status: "Active" | "Inactive"; application_deadline: string }>({ title: "", description: "", location: "", salary: "", department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active", application_deadline: "" });
 
   // Load jobs from database on component mount
   useEffect(() => {
@@ -36,7 +47,7 @@ const Jobs = () => {
     loadJobsData();
   }, [loadJobs]);
 
-  const resetForm = () => setForm({ title: "", description: "", location: "", salary: "", department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active" });
+  const resetForm = () => setForm({ title: "", description: "", location: "", salary: "", department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active", application_deadline: "" });
 
   const departments = ["All", ...new Set(jobs.map((j) => j.department))];
   const filtered = jobs.filter((j) => {
@@ -48,7 +59,7 @@ const Jobs = () => {
   const handleEdit = (jobId: string) => {
     const job = jobs.find((j) => j.id === jobId);
     if (!job) return;
-    setForm({ title: job.title, description: job.description, location: job.location, salary: job.salary, department: job.department, job_type: job.job_type, required_skills: job.required_skills.join(", "), experience_required: job.experience_required, status: job.status });
+    setForm({ title: job.title, description: job.description, location: job.location, salary: job.salary, department: job.department, job_type: job.job_type, required_skills: job.required_skills.join(", "), experience_required: job.experience_required, status: job.is_active ? "Active" : "Inactive", application_deadline: formatDateInputValue(job.application_deadline) });
     setEditingJob(jobId);
     setMenuOpen(null);
   };
@@ -68,6 +79,7 @@ const Jobs = () => {
         experience_required: form.experience_required,
         is_active: form.status === "Active",
         status: form.status,
+        application_deadline: form.application_deadline ? toDeadlineIso(form.application_deadline) : undefined,
       });
       toast({ title: "Job updated", description: `${form.title} has been updated.` });
       setEditingJob(null);
@@ -122,7 +134,7 @@ const Jobs = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Job Openings</h1>
-          <p className="text-muted-foreground mt-1">{jobs.filter((j) => j.status === "Active").length} active positions</p>
+          <p className="text-muted-foreground mt-1">{jobs.filter((j) => j.recruiter_status === "Active").length} active positions</p>
         </div>
         <button onClick={() => navigate("/jobs/create")} className="gradient-primary text-primary-foreground px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 hover-lift">
           <Plus className="w-4 h-4" /> Create Job
@@ -146,12 +158,13 @@ const Jobs = () => {
               <div className="flex-1">
                 <div className="flex items-center gap-3">
                   <h3 className="font-semibold text-foreground">{job.title}</h3>
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${job.status === "Active" ? "bg-emerald-50 text-emerald-600" : job.status === "Draft" ? "bg-amber-50 text-amber-600" : "bg-muted text-muted-foreground"}`}>{job.status}</span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${job.recruiter_status === "Active" ? "bg-emerald-50 text-emerald-600" : job.recruiter_status === "Deadline Passed" ? "bg-amber-50 text-amber-700" : "bg-muted text-muted-foreground"}`}>{job.recruiter_status || job.status}</span>
                 </div>
                 <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                   <span>{job.department}</span>
                   <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{job.location}</span>
-                  <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" />{job.application_count} applications</span>
+                  <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" />{job.applications_label || `${job.application_count} applications`}</span>
+                  {job.application_deadline && <span>Apply by {new Date(job.application_deadline).toLocaleDateString()}</span>}
                   {job.salary && <span>{job.salary}</span>}
                 </div>
               </div>
@@ -219,9 +232,13 @@ const Jobs = () => {
               <div>
                 <label className="text-sm font-medium text-foreground mb-1.5 block">Status</label>
                 <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as any })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
-                  <option>Active</option><option>Draft</option><option>Paused</option>
+                  <option>Active</option><option>Inactive</option>
                 </select>
               </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Last Date to Apply</label>
+              <input type="date" value={form.application_deadline} onChange={(e) => setForm({ ...form, application_deadline: e.target.value })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none" />
             </div>
             <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Required Skills</label>

@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 
 const CandidateJobs = () => {
-  const { jobs, applications, user, applyToJob, loadJobs, isLoading } = useStore();
+  const { jobs, applyToJob, loadJobs, isLoading } = useStore();
   const [search, setSearch] = useState("");
   const [deptFilter, setDeptFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("All");
@@ -32,11 +32,10 @@ const CandidateJobs = () => {
     loadJobsData();
   }, [loadJobs]);
 
-  const activeJobs = jobs.filter((j) => j.status === "Active");
-  const departments = ["All", ...new Set(activeJobs.map((j) => j.department))];
-  const myAppJobIds = applications.filter((a) => a.user_id === user.id).map((a) => a.job_id);
+  const visibleJobs = jobs;
+  const departments = ["All", ...new Set(visibleJobs.map((j) => j.department))];
 
-  const filtered = activeJobs.filter((j) => {
+  const filtered = visibleJobs.filter((j) => {
     const matchSearch = j.title.toLowerCase().includes(search.toLowerCase()) || j.description.toLowerCase().includes(search.toLowerCase());
     const matchDept = deptFilter === "All" || j.department === deptFilter;
     const matchType = typeFilter === "All" || j.job_type === typeFilter;
@@ -78,7 +77,7 @@ const CandidateJobs = () => {
   return (
     <PageLayout>
       <h1 className="text-3xl font-bold text-foreground">Browse Jobs</h1>
-      <p className="text-muted-foreground mt-1">{activeJobs.length} open positions</p>
+      <p className="text-muted-foreground mt-1">{visibleJobs.filter((j) => j.candidate_status === "Active").length} open positions</p>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <div className="flex-1 min-w-[200px] flex items-center gap-2 bg-muted rounded-xl px-4 py-2.5">
@@ -98,7 +97,7 @@ const CandidateJobs = () => {
 
       <div className="grid gap-4 mt-8">
         {filtered.map((job, i) => {
-          const applied = myAppJobIds.includes(job.id);
+          const applied = Boolean(job.has_applied);
           return (
             <motion.div key={job.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="bg-card rounded-2xl border border-border p-6 shadow-card hover-lift">
               <div className="flex items-start justify-between">
@@ -106,12 +105,14 @@ const CandidateJobs = () => {
                   <div className="flex items-center gap-3">
                     <h3 className="font-semibold text-foreground">{job.title}</h3>
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-secondary text-accent-foreground">{job.job_type}</span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${job.candidate_status === "Active" ? "bg-emerald-50 text-emerald-600" : job.candidate_status === "Applied" ? "bg-sky-50 text-sky-700" : "bg-muted text-muted-foreground"}`}>{job.candidate_status || "Inactive"}</span>
                   </div>
                   <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                     <span>{job.department}</span>
                     <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{job.location}</span>
                     {job.salary && <span>{job.salary}</span>}
                     <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{job.experience_required}</span>
+                    {job.application_deadline && <span>Apply by {new Date(job.application_deadline).toLocaleDateString()}</span>}
                   </div>
                   <p className="text-sm text-muted-foreground mt-3 line-clamp-2">{job.description}</p>
                   <div className="flex flex-wrap gap-2 mt-3">
@@ -124,6 +125,8 @@ const CandidateJobs = () => {
                   </button>
                   {applied ? (
                     <span className="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-sm font-semibold">Applied ✓</span>
+                  ) : !job.can_apply ? (
+                    <span className="px-4 py-2 bg-muted text-muted-foreground rounded-xl text-sm font-semibold">Inactive</span>
                   ) : (
                     <button onClick={() => setConfirmApply(job.id)} disabled={isLoading} className="gradient-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-semibold hover-lift disabled:opacity-50 disabled:cursor-not-allowed">
                       Apply
@@ -165,7 +168,7 @@ const CandidateJobs = () => {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setSelectedJob(null)}>Close</Button>
-                {!myAppJobIds.includes(viewJob.id) && (
+                {viewJob.can_apply && !viewJob.has_applied && (
                   <Button onClick={() => { setConfirmApply(viewJob.id); setSelectedJob(null); }}>Apply Now</Button>
                 )}
               </DialogFooter>

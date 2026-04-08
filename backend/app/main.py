@@ -2,7 +2,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.db.session import engine, get_db
+from app.db.session import get_db
 from app.db.base import Base
 from fastapi import Depends
 from sqlalchemy.orm import Session
@@ -45,7 +45,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-Base.metadata.create_all(bind=engine)
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])
