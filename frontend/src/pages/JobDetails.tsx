@@ -41,13 +41,14 @@ const JobDetails = () => {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold text-foreground">{job.title}</h1>
-              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${job.status === "Active" ? "bg-emerald-50 text-emerald-600" : job.status === "Draft" ? "bg-amber-50 text-amber-600" : "bg-muted text-muted-foreground"}`}>{job.status}</span>
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${job.recruiter_status === "Active" ? "bg-emerald-50 text-emerald-600" : job.recruiter_status === "Deadline Passed" ? "bg-amber-50 text-amber-700" : "bg-muted text-muted-foreground"}`}>{job.recruiter_status || job.status}</span>
             </div>
             <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
               <span className="flex items-center gap-1"><Briefcase className="w-4 h-4" />{job.department}</span>
               <span className="flex items-center gap-1"><MapPin className="w-4 h-4" />{job.location}</span>
               <span className="flex items-center gap-1"><Clock className="w-4 h-4" />{job.experience_required}</span>
-              <span className="flex items-center gap-1"><Users className="w-4 h-4" />{jobApps.length} applications</span>
+              <span className="flex items-center gap-1"><Users className="w-4 h-4" />{job.applications_label || `${jobApps.length} applications`}</span>
+              {job.application_deadline && <span>Apply by {new Date(job.application_deadline).toLocaleDateString()}</span>}
               {job.salary && <span>{job.salary}</span>}
             </div>
           </div>

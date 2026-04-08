@@ -23,6 +23,7 @@ class Job(Base):
 
     # Status
     is_active = Column(Boolean, default=True, index=True)
+    application_deadline = Column(DateTime, nullable=True, index=True)
 
     # Ownership
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
@@ -40,5 +41,6 @@ class Job(Base):
     __table_args__ = (
         Index('idx_jobs_is_active_created_at', 'is_active', 'created_at', postgresql_using='btree'),
         Index('idx_jobs_department_status', 'department', 'status'),
+        Index('idx_jobs_deadline_status', 'application_deadline', 'status'),
         Index('idx_jobs_created_by', 'created_by'),
     )

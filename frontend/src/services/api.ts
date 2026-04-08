@@ -42,6 +42,7 @@ interface JobPayload {
   department?: string;
   status?: string;
   is_active?: boolean;
+  application_deadline?: string;
   application_count?: number;
 }
 
@@ -58,14 +59,14 @@ export async function getJobs(
   token?: string,
   skip = 0,
   limit = 100,
-  isActive = true,
+  isActive?: boolean,
   department?: string,
   status?: string
 ) {
   const params = new URLSearchParams();
   params.append("skip", skip.toString());
   params.append("limit", limit.toString());
-  params.append("is_active", isActive.toString());
+  if (isActive !== undefined) params.append("is_active", isActive.toString());
   if (department) params.append("department", department);
   if (status) params.append("status", status);
 
