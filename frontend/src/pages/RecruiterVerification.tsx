@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { ShieldCheck, Building2, Globe, BadgeCheck, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import {
@@ -162,6 +163,14 @@ const RecruiterVerification = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-violet-50/40 to-cyan-50/30 p-6 md:p-10">
+      <div className="max-w-5xl mx-auto mb-4 flex items-center justify-between">
+        <Link
+          to="/login"
+          className="inline-flex items-center rounded-xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground shadow-sm hover:bg-muted transition-colors"
+        >
+          ← Back to Login
+        </Link>
+      </div>
       {status?.is_locked && (
         <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} className="max-w-5xl mx-auto mb-6 flex items-center justify-end">
           <button

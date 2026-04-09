@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Route, Routes, useLocation, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Navbar from "@/components/Navbar";
 import CandidateNavbar from "@/components/CandidateNavbar";
 import ChatBot from "@/components/ChatBot";
+import { getRecruiterVerificationStatus } from "@/services/api";
 import { useStore } from "@/stores/useStore";
 
 const Overview = lazy(() => import("@/pages/Overview"));
@@ -54,16 +55,57 @@ const RouteLoader = () => (
 const AppLayout = () => {
   const location = useLocation();
   const { isAuthenticated, user, restoreSession } = useStore();
+  const [verificationStatus, setVerificationStatus] = useState<string | null>(null);
+  const [verificationLoading, setVerificationLoading] = useState(isAuthenticated && user.role === "recruiter");
   const isLogin = location.pathname === "/login";
   const isRecruiterRegister = location.pathname === "/register-recruiter";
   const isStudentRegister = location.pathname === "/register-student";
   const isVerificationPage = location.pathname === "/verify-company";
   const isCandidate = user.role === "candidate";
   const isCandidateRoute = location.pathname.startsWith("/candidate/") || location.pathname === "/candidate";
+  const isRecruiter = user.role === "recruiter";
+  const recruiterNeedsVerification = isAuthenticated && isRecruiter && verificationStatus !== "approved";
 
   useEffect(() => {
     restoreSession();
   }, [restoreSession]);
+
+  useEffect(() => {
+    const loadVerificationStatus = async () => {
+      if (!isAuthenticated || !isRecruiter) {
+        setVerificationStatus(null);
+        setVerificationLoading(false);
+        return;
+      }
+
+      const token = localStorage.getItem("token");
+      if (!token) {
+        setVerificationStatus(null);
+        setVerificationLoading(false);
+        return;
+      }
+
+      setVerificationLoading(true);
+      try {
+        const data = await getRecruiterVerificationStatus(token);
+        setVerificationStatus(data.review_status || null);
+      } catch {
+        setVerificationStatus(null);
+      } finally {
+        setVerificationLoading(false);
+      }
+    };
+
+    loadVerificationStatus();
+  }, [isAuthenticated, isRecruiter, user.email]);
+
+  if (verificationLoading) {
+    return <RouteLoader />;
+  }
+
+  if (recruiterNeedsVerification && !isVerificationPage && !isLogin && !isRecruiterRegister && !isStudentRegister) {
+    return <Navigate to="/verify-company" replace />;
+  }
 
   return (
     <>
@@ -105,7 +147,7 @@ const AppLayout = () => {
           </Routes>
         </Suspense>
       </main>
-      {isAuthenticated && !isLogin && <ChatBot />}
+      {isAuthenticated && !isLogin && !isVerificationPage && !(isRecruiter && recruiterNeedsVerification) && <ChatBot />}
     </>
   );
 };

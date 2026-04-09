@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Bell, ChevronDown, LogOut } from "lucide-react";
+import { Bell, ChevronDown, LogOut, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useStore } from "@/stores/useStore";
@@ -87,20 +87,15 @@ const Navbar = () => {
 
           <div className="relative">
             <div className="flex items-center gap-1">
-              <Link
-                to={user.role === "recruiter" ? "/verify-company" : "/"}
+              <button
+                onClick={() => setShowDropdown(!showDropdown)}
                 className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-muted transition-colors"
-                title="Open profile"
+                aria-label="Open user menu"
+                title="Open profile options"
               >
                 <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">
                   {user.avatar}
                 </div>
-              </Link>
-              <button
-                onClick={() => setShowDropdown(!showDropdown)}
-                className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-                aria-label="Open user menu"
-              >
                 <ChevronDown className="w-4 h-4 text-muted-foreground" />
               </button>
             </div>
@@ -117,6 +112,7 @@ const Navbar = () => {
                     onClick={() => setShowDropdown(false)}
                     className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                   >
+                    <User className="w-4 h-4" />
                     Trust profile
                   </Link>
                 )}
