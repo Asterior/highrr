@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -12,9 +13,11 @@ from app.models.recruiter_reputation import RecruiterReputation
 from app.models.user import User
 from app.models.user_report import UserReport
 from app.schemas.trust import (
+    AdminVerificationReviewRequest,
     CompanyAssessmentRequest,
     CompanyTrustResponse,
     JobRiskResponse,
+    RecruiterVerificationProfileResponse,
     RecruiterTrustStatusResponse,
     ReportCreate,
     ReportResponse,
@@ -40,6 +43,45 @@ def _level_from_score(score: int) -> str:
     if score >= 55:
         return "verified"
     return "basic"
+
+
+def _assessment_from_payload(payload: CompanyAssessmentRequest) -> tuple[int, str, bool, int, int]:
+    domain = (payload.company_domain or payload.company_email.split("@")[-1]).lower().strip()
+    domain_verified = domain not in FREE_EMAIL_DOMAINS
+
+    domain_score = 20 if payload.domain_age_years >= 2 and domain_verified else 8 if domain_verified else 0
+    business_score = 30 if payload.business_registry_id else 0
+
+    website_quality = 0
+    if payload.website_url:
+        website_quality += 4
+    if payload.has_https:
+        website_quality += 3
+    if payload.contact_matches_submission:
+        website_quality += 3
+
+    office_score = 10 if payload.office_proof_verified else 0
+
+    employee_score = 0
+    if payload.linkedin_company_url:
+        employee_score += 5
+    if payload.employee_count >= 10:
+        employee_score += 5
+
+    score = domain_score + business_score + website_quality + office_score + employee_score
+    score -= payload.user_reports_penalty
+    score = max(0, min(100, score))
+
+    return score, domain, domain_verified, website_quality, employee_score
+
+
+def _parse_pending_payload(raw_payload: str | None) -> CompanyAssessmentRequest | None:
+    if not raw_payload:
+        return None
+    try:
+        return CompanyAssessmentRequest(**json.loads(raw_payload))
+    except Exception:
+        return None
 
 
 def _upsert_reputation(db: Session, recruiter_id: int) -> RecruiterReputation:
@@ -102,6 +144,8 @@ def my_verification_status(
             verification_level="trusted",
             trust_score=100,
             can_post_jobs=True,
+            review_status="approved",
+            is_locked=False,
         )
 
     company = db.query(CompanyVerification).filter(CompanyVerification.recruiter_id == current_user.id).first()
@@ -111,6 +155,8 @@ def my_verification_status(
             verification_level="basic",
             trust_score=0,
             can_post_jobs=False,
+            review_status="draft",
+            is_locked=False,
         )
 
     return RecruiterTrustStatusResponse(
@@ -118,6 +164,59 @@ def my_verification_status(
         verification_level=company.verification_level,
         trust_score=company.trust_score,
         can_post_jobs=company.verification_level in {"verified", "trusted"},
+        review_status=company.review_status or "draft",
+        is_locked=bool(company.is_locked),
+        submitted_at=company.submitted_at,
+        reviewed_at=company.reviewed_at,
+    )
+
+
+@router.get("/me/profile", response_model=RecruiterVerificationProfileResponse)
+def get_my_verification_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role not in {"recruiter", "admin"}:
+        raise HTTPException(status_code=403, detail="Only recruiters/admins can access verification profile")
+
+    company = db.query(CompanyVerification).filter(CompanyVerification.recruiter_id == current_user.id).first()
+    if not company:
+        return RecruiterVerificationProfileResponse(
+            recruiter_id=current_user.id,
+            company_name="",
+            verification_level="basic",
+            trust_score=0,
+            can_post_jobs=False,
+            review_status="draft",
+            is_locked=False,
+        )
+
+    pending = _parse_pending_payload(company.pending_payload)
+    source = pending if pending and company.review_status == "pending_review" else None
+
+    return RecruiterVerificationProfileResponse(
+        recruiter_id=current_user.id,
+        company_name=(source.company_name if source else company.company_name) or "",
+        company_email=(source.company_email if source else company.company_email),
+        company_domain=(source.company_domain if source else company.company_domain),
+        website_url=(source.website_url if source else company.website_url),
+        business_registry_id=(source.business_registry_id if source else company.business_registry_id),
+        business_country=(source.business_country if source else company.business_country),
+        domain_age_years=(source.domain_age_years if source else 0),
+        has_https=(source.has_https if source else False),
+        contact_matches_submission=(source.contact_matches_submission if source else False),
+        office_proof_verified=(source.office_proof_verified if source else company.office_proof_verified),
+        linkedin_company_url=(source.linkedin_company_url if source else None),
+        employee_count=(source.employee_count if source else 0),
+        user_reports_penalty=(source.user_reports_penalty if source else 0),
+        verification_level=company.verification_level or "basic",
+        trust_score=company.trust_score or 0,
+        can_post_jobs=(company.verification_level in {"verified", "trusted"}),
+        review_status=company.review_status or "draft",
+        is_locked=bool(company.is_locked),
+        admin_notes=company.admin_notes,
+        submitted_at=company.submitted_at,
+        reviewed_at=company.reviewed_at,
     )
 
 
@@ -128,74 +227,73 @@ def assess_company(
     current_user: User = Depends(get_current_user),
 ):
     if current_user.role not in {"recruiter", "admin"}:
-        raise HTTPException(status_code=403, detail="Only recruiters/admins can run company assessment")
+        raise HTTPException(status_code=403, detail="Only recruiters/admins can submit company assessment")
 
-    domain = (payload.company_domain or payload.company_email.split("@")[-1]).lower().strip()
-    domain_verified = domain not in FREE_EMAIL_DOMAINS
-
-    domain_score = 20 if payload.domain_age_years >= 2 and domain_verified else 8 if domain_verified else 0
-    business_score = 30 if payload.business_registry_id else 0
-
-    website_quality = 0
-    if payload.website_url:
-        website_quality += 4
-    if payload.has_https:
-        website_quality += 3
-    if payload.contact_matches_submission:
-        website_quality += 3
-
-    office_score = 10 if payload.office_proof_verified else 0
-
-    employee_score = 0
-    if payload.linkedin_company_url:
-        employee_score += 5
-    if payload.employee_count >= 10:
-        employee_score += 5
-
-    score = domain_score + business_score + website_quality + office_score + employee_score
-    score -= payload.user_reports_penalty
-    score = max(0, min(100, score))
-
-    level = _level_from_score(score)
+    if current_user.role != "recruiter":
+        raise HTTPException(status_code=403, detail="Only recruiters can submit profile for review")
 
     company = db.query(CompanyVerification).filter(CompanyVerification.recruiter_id == current_user.id).first()
     if not company:
-        company = CompanyVerification(recruiter_id=current_user.id)
+        company = CompanyVerification(recruiter_id=current_user.id, company_name=payload.company_name)
         db.add(company)
 
-    company.company_name = payload.company_name
-    company.company_email = payload.company_email
-    company.company_domain = domain
-    company.website_url = payload.website_url
-    company.verification_level = level
-    company.trust_score = score
-    company.domain_verified = domain_verified
-    company.domain_otp_verified = domain_verified
-    company.business_registration_verified = bool(payload.business_registry_id)
-    company.business_registry_id = payload.business_registry_id
-    company.business_country = payload.business_country
-    company.website_quality_score = website_quality
-    company.office_proof_verified = payload.office_proof_verified
-    company.employee_presence_score = employee_score
-    company.last_assessed_at = datetime.utcnow()
+    company.pending_payload = json.dumps(payload.model_dump())
+    company.review_status = "pending_review"
+    company.is_locked = True
+    company.submitted_at = datetime.utcnow()
+    company.admin_notes = None
 
     reputation = _upsert_reputation(db, current_user.id)
     db.commit()
     db.refresh(company)
     db.refresh(reputation)
 
+    score, _domain, domain_verified, website_quality, employee_score = _assessment_from_payload(payload)
+    level = _level_from_score(score)
+
     return CompanyTrustResponse(
         recruiter_id=current_user.id,
-        company_name=company.company_name,
-        verification_level=company.verification_level,
-        trust_score=company.trust_score,
-        domain_verified=company.domain_verified,
-        business_registration_verified=company.business_registration_verified,
-        website_quality_score=company.website_quality_score,
-        office_proof_verified=company.office_proof_verified,
-        employee_presence_score=company.employee_presence_score,
+        company_name=payload.company_name,
+        verification_level=level,
+        trust_score=score,
+        domain_verified=domain_verified,
+        business_registration_verified=bool(payload.business_registry_id),
+        website_quality_score=website_quality,
+        office_proof_verified=payload.office_proof_verified,
+        employee_presence_score=employee_score,
         response_rate=reputation.response_rate,
         hiring_success_rate=reputation.hiring_success_rate,
+    )
+
+
+@router.post("/company/unlock", response_model=RecruiterTrustStatusResponse)
+def unlock_company_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "recruiter":
+        raise HTTPException(status_code=403, detail="Only recruiters can edit verification profile")
+
+    company = db.query(CompanyVerification).filter(CompanyVerification.recruiter_id == current_user.id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Verification profile not found")
+
+    company.is_locked = False
+    company.review_status = "draft"
+    company.pending_payload = None
+    company.admin_notes = None
+    db.commit()
+    db.refresh(company)
+
+    return RecruiterTrustStatusResponse(
+        recruiter_id=current_user.id,
+        verification_level=company.verification_level,
+        trust_score=company.trust_score,
+        can_post_jobs=company.verification_level in {"verified", "trusted"},
+        review_status=company.review_status or "draft",
+        is_locked=bool(company.is_locked),
+        submitted_at=company.submitted_at,
+        reviewed_at=company.reviewed_at,
     )
 
 
@@ -268,14 +366,117 @@ def get_verification_queue(
                 fake_job_reports_count=fake_job_reports,
                 response_rate=(reputation.response_rate if reputation else 100.0),
                 hiring_success_rate=(reputation.hiring_success_rate if reputation else 0.0),
+                business_registration_verified=bool(company.business_registration_verified),
+                business_country=company.business_country,
+                admin_notes=company.admin_notes,
                 last_assessed_at=company.last_assessed_at,
+                submitted_at=company.submitted_at,
+                reviewed_at=company.reviewed_at,
                 created_at=company.created_at,
                 updated_at=company.updated_at,
-                review_status="reviewed" if company.last_assessed_at else "pending",
+                review_status=company.review_status or "draft",
             )
         )
 
     return queue
+
+
+@router.post("/admin/verification-queue/{recruiter_id}/review", response_model=VerificationQueueItemResponse)
+def review_company_submission(
+    recruiter_id: int,
+    payload: AdminVerificationReviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    company = db.query(CompanyVerification).filter(CompanyVerification.recruiter_id == recruiter_id).first()
+    recruiter = db.query(User).filter(User.id == recruiter_id).first()
+    if not company or not recruiter:
+        raise HTTPException(status_code=404, detail="Verification submission not found")
+
+    pending = _parse_pending_payload(company.pending_payload)
+    now = datetime.utcnow()
+
+    if payload.action == "approve":
+        if pending:
+            score, domain, domain_verified, website_quality, employee_score = _assessment_from_payload(pending)
+            level = _level_from_score(score)
+
+            company.company_name = pending.company_name
+            company.company_email = pending.company_email
+            company.company_domain = domain
+            company.website_url = pending.website_url
+            company.domain_verified = domain_verified
+            company.domain_otp_verified = domain_verified
+            company.business_registration_verified = bool(pending.business_registry_id)
+            company.business_registry_id = pending.business_registry_id
+            company.business_country = pending.business_country
+            company.website_quality_score = website_quality
+            company.office_proof_verified = pending.office_proof_verified
+            company.employee_presence_score = employee_score
+
+            company.trust_score = payload.trust_score if payload.trust_score is not None else score
+            if payload.verification_level:
+                company.verification_level = payload.verification_level
+            else:
+                company.verification_level = _level_from_score(company.trust_score)
+        else:
+            if payload.trust_score is not None:
+                company.trust_score = payload.trust_score
+            if payload.verification_level:
+                company.verification_level = payload.verification_level
+
+        company.review_status = "approved"
+        company.is_locked = True
+        company.pending_payload = None
+        company.last_assessed_at = now
+        company.reviewed_at = now
+        company.admin_notes = payload.admin_notes
+
+    else:
+        company.review_status = "rejected"
+        company.is_locked = True
+        company.reviewed_at = now
+        company.admin_notes = payload.admin_notes or "Needs updates from recruiter"
+
+    db.commit()
+    db.refresh(company)
+
+    reputation = db.query(RecruiterReputation).filter(RecruiterReputation.recruiter_id == recruiter.id).first()
+    report_counts = db.query(UserReport.category, UserReport.id).filter(UserReport.recruiter_id == recruiter.id).all()
+    reports_count = len(report_counts)
+    scam_reports = sum(1 for category, _ in report_counts if category == "scam")
+    no_response_reports = sum(1 for category, _ in report_counts if category == "no_response")
+    fake_job_reports = sum(1 for category, _ in report_counts if category == "fake_job")
+
+    return VerificationQueueItemResponse(
+        recruiter_id=recruiter.id,
+        recruiter_name=recruiter.name,
+        recruiter_email=recruiter.email,
+        company_name=company.company_name,
+        company_domain=company.company_domain,
+        company_email=company.company_email,
+        website_url=company.website_url,
+        verification_level=company.verification_level,
+        trust_score=company.trust_score,
+        reports_count=reports_count,
+        scam_reports_count=scam_reports,
+        no_response_reports_count=no_response_reports,
+        fake_job_reports_count=fake_job_reports,
+        response_rate=(reputation.response_rate if reputation else 100.0),
+        hiring_success_rate=(reputation.hiring_success_rate if reputation else 0.0),
+        business_registration_verified=bool(company.business_registration_verified),
+        business_country=company.business_country,
+        admin_notes=company.admin_notes,
+        last_assessed_at=company.last_assessed_at,
+        submitted_at=company.submitted_at,
+        reviewed_at=company.reviewed_at,
+        created_at=company.created_at,
+        updated_at=company.updated_at,
+        review_status=company.review_status or "draft",
+    )
 
 
 @router.post("/report", response_model=ReportResponse)

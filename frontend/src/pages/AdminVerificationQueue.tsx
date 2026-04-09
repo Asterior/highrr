@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { BadgeCheck, Building2, CalendarClock, ShieldAlert, Users } from "lucide-react";
 import PageLayout from "@/components/PageLayout";
-import { getVerificationQueue } from "@/services/api";
+import { getVerificationQueue, reviewVerificationSubmission } from "@/services/api";
 import { useStore } from "@/stores/useStore";
 import { toast } from "@/hooks/use-toast";
 
@@ -10,6 +10,8 @@ const AdminVerificationQueue = () => {
   const { user } = useStore();
   const [loading, setLoading] = useState(true);
   const [queue, setQueue] = useState<any[]>([]);
+  const [submittingId, setSubmittingId] = useState<number | null>(null);
+  const [reviewForm, setReviewForm] = useState<Record<number, { verification_level: string; trust_score: number; admin_notes: string }>>({});
 
   useEffect(() => {
     const loadQueue = async () => {
@@ -19,6 +21,16 @@ const AdminVerificationQueue = () => {
         if (!token) throw new Error("Not authenticated");
         const data = await getVerificationQueue(token);
         setQueue(data);
+        setReviewForm(
+          data.reduce((acc: Record<number, { verification_level: string; trust_score: number; admin_notes: string }>, item: any) => {
+            acc[item.recruiter_id] = {
+              verification_level: item.verification_level || "basic",
+              trust_score: Number(item.trust_score || 0),
+              admin_notes: item.admin_notes || "",
+            };
+            return acc;
+          }, {}),
+        );
       } catch (error: any) {
         toast({ title: "Could not load verification queue", description: error.message, variant: "destructive" });
       } finally {
@@ -27,6 +39,36 @@ const AdminVerificationQueue = () => {
     };
     loadQueue();
   }, []);
+
+  const applyReview = async (item: any, action: "approve" | "reject") => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      toast({ title: "Not authenticated", variant: "destructive" });
+      return;
+    }
+    const config = reviewForm[item.recruiter_id] || {
+      verification_level: item.verification_level,
+      trust_score: item.trust_score,
+      admin_notes: "",
+    };
+
+    setSubmittingId(item.recruiter_id);
+    try {
+      const updated = await reviewVerificationSubmission(token, item.recruiter_id, {
+        action,
+        verification_level: config.verification_level,
+        trust_score: Number(config.trust_score),
+        admin_notes: config.admin_notes,
+      });
+
+      setQueue((prev) => prev.map((entry) => (entry.recruiter_id === item.recruiter_id ? updated : entry)));
+      toast({ title: action === "approve" ? "Submission approved" : "Submission rejected" });
+    } catch (error: any) {
+      toast({ title: "Review update failed", description: error.message, variant: "destructive" });
+    } finally {
+      setSubmittingId(null);
+    }
+  };
 
   const stats = useMemo(() => ({
     total: queue.length,
@@ -130,10 +172,105 @@ const AdminVerificationQueue = () => {
                   </div>
                   <div className="rounded-2xl bg-muted/35 p-4">
                     <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><CalendarClock className="h-3.5 w-3.5" /> Submission</div>
-                    <p className="mt-2 text-sm text-foreground">{item.last_assessed_at ? new Date(item.last_assessed_at).toLocaleString() : new Date(item.created_at).toLocaleString()}</p>
+                    <p className="mt-2 text-sm text-foreground">{item.submitted_at ? new Date(item.submitted_at).toLocaleString() : new Date(item.created_at).toLocaleString()}</p>
                     <p className="mt-1 text-xs text-muted-foreground">Status: {item.review_status}</p>
                   </div>
                 </div>
+
+                {item.review_status && ["approved", "rejected"].includes(item.review_status) ? (
+                  <div className="mt-5 rounded-2xl border border-border bg-muted/20 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Review Complete</p>
+                        <p className="mt-2 text-sm font-semibold text-foreground capitalize">{item.review_status === "approved" ? "✓ Approved" : "✗ Rejected"}</p>
+                        {item.admin_notes && (
+                          <p className="mt-2 text-xs text-muted-foreground max-w-md">{item.admin_notes}</p>
+                        )}
+                      </div>
+                      <div className={`rounded-full px-3 py-1.5 text-xs font-semibold ${item.review_status === "approved" ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
+                        {item.review_status === "approved" ? "Verified" : "Needs Action"}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-5 rounded-2xl border border-border bg-muted/20 p-4 space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Admin Review Controls</p>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div>
+                        <label className="text-xs font-semibold text-foreground">Verification level</label>
+                        <select
+                          value={reviewForm[item.recruiter_id]?.verification_level ?? item.verification_level}
+                          onChange={(e) =>
+                            setReviewForm((prev) => ({
+                              ...prev,
+                              [item.recruiter_id]: {
+                                ...(prev[item.recruiter_id] || { trust_score: item.trust_score, admin_notes: "" }),
+                                verification_level: e.target.value,
+                              },
+                            }))
+                          }
+                          className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                        >
+                          <option value="basic">Basic</option>
+                          <option value="verified">Verified</option>
+                          <option value="trusted">Trusted</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-foreground">Trust score</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={reviewForm[item.recruiter_id]?.trust_score ?? item.trust_score}
+                          onChange={(e) =>
+                            setReviewForm((prev) => ({
+                              ...prev,
+                              [item.recruiter_id]: {
+                                ...(prev[item.recruiter_id] || { verification_level: item.verification_level, admin_notes: "" }),
+                                trust_score: Number(e.target.value),
+                              },
+                            }))
+                          }
+                          className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-foreground">Admin notes</label>
+                        <input
+                          value={reviewForm[item.recruiter_id]?.admin_notes ?? ""}
+                          onChange={(e) =>
+                            setReviewForm((prev) => ({
+                              ...prev,
+                              [item.recruiter_id]: {
+                                ...(prev[item.recruiter_id] || { verification_level: item.verification_level, trust_score: item.trust_score }),
+                                admin_notes: e.target.value,
+                              },
+                            }))
+                          }
+                          className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                          placeholder="Optional feedback for recruiter"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => applyReview(item, "approve")}
+                        disabled={submittingId === item.recruiter_id}
+                        className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => applyReview(item, "reject")}
+                        disabled={submittingId === item.recruiter_id}
+                        className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             );
           })

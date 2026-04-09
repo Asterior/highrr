@@ -1,8 +1,9 @@
 import { Link, useLocation } from "react-router-dom";
-import { Search, Bell, ChevronDown, LogOut } from "lucide-react";
-import { useState } from "react";
+import { Bell, ChevronDown, LogOut } from "lucide-react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useStore } from "@/stores/useStore";
+import { getRecruiterVerificationStatus } from "@/services/api";
 
 const navItems = [
   { label: "Jobs", path: "/jobs" },
@@ -19,6 +20,26 @@ const Navbar = () => {
   const location = useLocation();
   const { user, logout } = useStore();
   const [showDropdown, setShowDropdown] = useState(false);
+  const [trustScore, setTrustScore] = useState<number | null>(null);
+
+  useEffect(() => {
+    const loadTrust = async () => {
+      if (user.role !== "recruiter") {
+        setTrustScore(null);
+        return;
+      }
+      const token = localStorage.getItem("token");
+      if (!token) return;
+      try {
+        const data = await getRecruiterVerificationStatus(token);
+        setTrustScore(data.trust_score ?? 0);
+      } catch {
+        setTrustScore(null);
+      }
+    };
+
+    loadTrust();
+  }, [user.role]);
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 h-16 bg-background border-b border-border shadow-card">
@@ -53,14 +74,11 @@ const Navbar = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5">
-            <Search className="w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search..."
-              className="bg-transparent text-sm outline-none w-32 placeholder:text-muted-foreground"
-            />
-          </div>
+          {user.role === "recruiter" && trustScore !== null && (
+            <Link to="/verify-company" className="hidden md:inline-flex rounded-full bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700">
+              Trust {trustScore}/100
+            </Link>
+          )}
 
           <button className="relative p-2 rounded-lg hover:bg-muted transition-colors">
             <Bell className="w-5 h-5 text-muted-foreground" />
@@ -68,21 +86,40 @@ const Navbar = () => {
           </button>
 
           <div className="relative">
-            <button
-              onClick={() => setShowDropdown(!showDropdown)}
-              className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-muted transition-colors"
-            >
-              <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">
-                {user.avatar}
-              </div>
-              <ChevronDown className="w-4 h-4 text-muted-foreground" />
-            </button>
+            <div className="flex items-center gap-1">
+              <Link
+                to={user.role === "recruiter" ? "/verify-company" : "/"}
+                className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-muted transition-colors"
+                title="Open profile"
+              >
+                <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">
+                  {user.avatar}
+                </div>
+              </Link>
+              <button
+                onClick={() => setShowDropdown(!showDropdown)}
+                className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+                aria-label="Open user menu"
+              >
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
+
             {showDropdown && (
               <div className="absolute right-0 top-12 w-48 bg-background rounded-xl border border-border shadow-elevated p-1">
                 <div className="px-3 py-2 border-b border-border mb-1">
                   <p className="text-sm font-medium text-foreground">{user.name}</p>
                   <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
                 </div>
+                {user.role === "recruiter" && (
+                  <Link
+                    to="/verify-company"
+                    onClick={() => setShowDropdown(false)}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+                  >
+                    Trust profile
+                  </Link>
+                )}
                 <Link
                   to="/login"
                   onClick={() => { setShowDropdown(false); logout(); }}
