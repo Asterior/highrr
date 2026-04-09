@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -11,6 +11,12 @@ from app.models.job import Job
 from app.schemas.job import JobCreate, JobResponse, JobUpdate
 
 router = APIRouter()
+
+
+def _to_utc_naive(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _verification_for_recruiter(db: Session, recruiter_id: int) -> tuple[str, int]:
@@ -92,7 +98,7 @@ def create_job(
         raise HTTPException(status_code=400, detail="Hiring intent confirmation is required")
 
     posted_expires_at = datetime.utcnow() + timedelta(days=30)
-    if job.application_deadline and job.application_deadline > posted_expires_at:
+    if job.application_deadline and _to_utc_naive(job.application_deadline) > posted_expires_at:
         raise HTTPException(status_code=400, detail="Application deadline must be within 30 days of posting")
 
     db_job = Job(
@@ -209,7 +215,7 @@ def update_job(
             raise HTTPException(status_code=400, detail="Detailed role responsibilities are required")
 
     if "application_deadline" in update_data and update_data["application_deadline"] and job.posted_expires_at:
-        if update_data["application_deadline"] > job.posted_expires_at:
+        if _to_utc_naive(update_data["application_deadline"]) > _to_utc_naive(job.posted_expires_at):
             raise HTTPException(status_code=400, detail="Application deadline must be within job expiry window")
 
     for field, value in update_data.items():

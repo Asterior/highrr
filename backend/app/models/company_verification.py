@@ -32,6 +32,14 @@ class CompanyVerification(Base):
     employee_presence_score = Column(Integer, default=0)
 
     risk_notes = Column(Text, nullable=True)
+    admin_notes = Column(Text, nullable=True)
+    pending_payload = Column(Text, nullable=True)
+
+    review_status = Column(String, default="draft", index=True)
+    is_locked = Column(Boolean, default=False)
+    submitted_at = Column(DateTime, nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+
     last_assessed_at = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)

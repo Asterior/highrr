@@ -38,6 +38,35 @@ class RecruiterTrustStatusResponse(BaseModel):
     verification_level: str
     trust_score: int
     can_post_jobs: bool
+    review_status: str = "draft"
+    is_locked: bool = False
+    submitted_at: datetime | None = None
+    reviewed_at: datetime | None = None
+
+
+class RecruiterVerificationProfileResponse(BaseModel):
+    recruiter_id: int
+    company_name: str
+    company_email: str | None = None
+    company_domain: str | None = None
+    website_url: str | None = None
+    business_registry_id: str | None = None
+    business_country: str | None = None
+    domain_age_years: int = 0
+    has_https: bool = False
+    contact_matches_submission: bool = False
+    office_proof_verified: bool = False
+    linkedin_company_url: str | None = None
+    employee_count: int = 0
+    user_reports_penalty: int = 0
+    verification_level: str
+    trust_score: int
+    can_post_jobs: bool
+    review_status: str
+    is_locked: bool
+    admin_notes: str | None = None
+    submitted_at: datetime | None = None
+    reviewed_at: datetime | None = None
 
 
 class VerificationQueueItemResponse(BaseModel):
@@ -56,10 +85,22 @@ class VerificationQueueItemResponse(BaseModel):
     fake_job_reports_count: int
     response_rate: float
     hiring_success_rate: float
+    business_registration_verified: bool = False
+    business_country: str | None = None
+    admin_notes: str | None = None
     last_assessed_at: datetime | None
+    submitted_at: datetime | None = None
+    reviewed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     review_status: str
+
+
+class AdminVerificationReviewRequest(BaseModel):
+    action: str = Field(..., pattern="^(approve|reject)$")
+    verification_level: str | None = None
+    trust_score: int | None = Field(default=None, ge=0, le=100)
+    admin_notes: str | None = None
 
 
 class ReportCreate(BaseModel):

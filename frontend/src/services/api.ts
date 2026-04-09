@@ -551,6 +551,22 @@ export async function getRecruiterVerificationStatus(token: string) {
   return res.json();
 }
 
+export async function getRecruiterVerificationProfile(token: string) {
+  const res = await fetch(`${BASE_URL}/trust/me/profile`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to fetch verification profile");
+  }
+
+  return res.json();
+}
+
 export async function assessCompanyVerification(
   token: string,
   payload: {
@@ -581,6 +597,22 @@ export async function assessCompanyVerification(
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.detail || "Verification assessment failed");
+  }
+
+  return res.json();
+}
+
+export async function unlockCompanyVerificationProfile(token: string) {
+  const res = await fetch(`${BASE_URL}/trust/company/unlock`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to unlock verification profile");
   }
 
   return res.json();
@@ -629,6 +661,33 @@ export async function getVerificationQueue(token: string) {
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.detail || "Failed to load verification queue");
+  }
+
+  return res.json();
+}
+
+export async function reviewVerificationSubmission(
+  token: string,
+  recruiterId: number | string,
+  payload: {
+    action: "approve" | "reject";
+    verification_level?: string;
+    trust_score?: number;
+    admin_notes?: string;
+  },
+) {
+  const res = await fetch(`${BASE_URL}/trust/admin/verification-queue/${recruiterId}/review`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to update verification review");
   }
 
   return res.json();

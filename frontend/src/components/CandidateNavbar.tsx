@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Search, Bell, ChevronDown, LogOut, User } from "lucide-react";
+import { Bell, ChevronDown, LogOut, User } from "lucide-react";
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { useStore } from "@/stores/useStore";
@@ -9,7 +9,6 @@ const navItems = [
   { label: "Jobs", path: "/candidate/jobs" },
   { label: "Applications", path: "/candidate/applications" },
   { label: "Shortlisted", path: "/candidate/shortlisted" },
-  { label: "Profile", path: "/candidate/profile" },
   { label: "Resume", path: "/candidate/resume" },
   { label: "ATS Score", path: "/candidate/ats-score" },
   { label: "Messages", path: "/candidate/messages" },
@@ -56,15 +55,24 @@ const CandidateNavbar = () => {
           </button>
 
           <div className="relative">
-            <button
-              onClick={() => setShowDropdown(!showDropdown)}
-              className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-muted transition-colors"
-            >
-              <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">
-                {user.avatar}
-              </div>
-              <ChevronDown className="w-4 h-4 text-muted-foreground" />
-            </button>
+            <div className="flex items-center gap-1">
+              <Link
+                to="/candidate/profile"
+                className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-muted transition-colors"
+                title="Open profile"
+              >
+                <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">
+                  {user.avatar}
+                </div>
+              </Link>
+              <button
+                onClick={() => setShowDropdown(!showDropdown)}
+                className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+                aria-label="Open user menu"
+              >
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
             {showDropdown && (
               <div className="absolute right-0 top-12 w-48 bg-background rounded-xl border border-border shadow-elevated p-1">
                 <Link
