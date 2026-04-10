@@ -22,9 +22,13 @@ const CandidateNavbar = () => {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 h-16 bg-background border-b border-border shadow-card">
       <div className="max-w-7xl mx-auto h-full flex items-center justify-between px-6">
-        <Link to="/candidate" className="text-xl font-bold text-primary tracking-tight">
-          Highrr
-        </Link>
+<Link to="/" className="flex items-center">
+  <img 
+    src="/highrrlogo.png" 
+    alt="Highrr Logo" 
+    className="h-8 w-auto object-contain"
+  />
+</Link>
 
         <div className="hidden lg:flex items-center gap-1">
           {navItems.map((item) => {
