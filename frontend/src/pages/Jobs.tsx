@@ -29,7 +29,7 @@ const Jobs = () => {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [loadingMessage, setLoadingMessage] = useState("");
 
-  const [form, setForm] = useState<{ title: string; description: string; location: string; salary: string; responsibilities: string; hiring_timeline: string; actively_hiring: boolean; department: string; job_type: "full-time" | "intern" | "contract"; required_skills: string; experience_required: string; status: "Active" | "Inactive"; application_deadline: string }>({ title: "", description: "", location: "", salary: "", responsibilities: "", hiring_timeline: "", actively_hiring: true, department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active", application_deadline: "" });
+  const [form, setForm] = useState<{ title: string; description: string; location: string; salary: string; responsibilities: string; hiring_timeline: string; actively_hiring: boolean; department: string; job_type: "full-time" | "intern" | "contract"; required_skills: string; experience_required: string; application_deadline: string }>({ title: "", description: "", location: "", salary: "", responsibilities: "", hiring_timeline: "", actively_hiring: true, department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", application_deadline: "" });
 
   // Load jobs from database on component mount
   useEffect(() => {
@@ -47,7 +47,7 @@ const Jobs = () => {
     loadJobsData();
   }, [loadJobs]);
 
-  const resetForm = () => setForm({ title: "", description: "", location: "", salary: "", responsibilities: "", hiring_timeline: "", actively_hiring: true, department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active", application_deadline: "" });
+  const resetForm = () => setForm({ title: "", description: "", location: "", salary: "", responsibilities: "", hiring_timeline: "", actively_hiring: true, department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", application_deadline: "" });
 
   const departments = ["All", ...new Set(jobs.map((j) => j.department))];
   const filtered = jobs.filter((j) => {
@@ -59,7 +59,7 @@ const Jobs = () => {
   const handleEdit = (jobId: string) => {
     const job = jobs.find((j) => j.id === jobId);
     if (!job) return;
-    setForm({ title: job.title, description: job.description, location: job.location, salary: job.salary, responsibilities: job.responsibilities || "", hiring_timeline: job.hiring_timeline || "", actively_hiring: job.actively_hiring ?? true, department: job.department, job_type: job.job_type, required_skills: job.required_skills.join(", "), experience_required: job.experience_required, status: job.is_active ? "Active" : "Inactive", application_deadline: formatDateInputValue(job.application_deadline) });
+    setForm({ title: job.title, description: job.description, location: job.location, salary: job.salary, responsibilities: job.responsibilities || "", hiring_timeline: job.hiring_timeline || "", actively_hiring: job.actively_hiring ?? true, department: job.department, job_type: job.job_type, required_skills: job.required_skills.join(", "), experience_required: job.experience_required, application_deadline: formatDateInputValue(job.application_deadline) });
     setEditingJob(jobId);
     setMenuOpen(null);
   };
@@ -80,8 +80,8 @@ const Jobs = () => {
         job_type: form.job_type,
         required_skills: form.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
         experience_required: form.experience_required,
-        is_active: form.status === "Active",
-        status: form.status,
+        is_active: true,
+        status: "Active",
         application_deadline: form.application_deadline ? toDeadlineIso(form.application_deadline) : undefined,
       });
       toast({ title: "Job updated", description: `${form.title} has been updated.` });
@@ -249,23 +249,18 @@ const Jobs = () => {
                 <input value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none" />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3">
               <div>
                 <label className="text-sm font-medium text-foreground mb-1.5 block">Department</label>
                 <select value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
                   <option>Engineering</option><option>Design</option><option>Product</option><option>Data</option>
                 </select>
               </div>
-              <div>
-                <label className="text-sm font-medium text-foreground mb-1.5 block">Status</label>
-                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as any })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
-                  <option>Active</option><option>Inactive</option>
-                </select>
-              </div>
             </div>
             <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Last Date to Apply</label>
               <input type="date" value={form.application_deadline} onChange={(e) => setForm({ ...form, application_deadline: e.target.value })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none" />
+              <p className="text-xs text-muted-foreground mt-1">Status will be Active until this date.</p>
             </div>
             <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Required Skills</label>
