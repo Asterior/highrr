@@ -9,6 +9,7 @@ from app.models.application import Application
 from app.models.company_verification import CompanyVerification
 from app.models.job import Job
 from app.schemas.job import JobCreate, JobResponse, JobUpdate
+from app.core.job_status import recruiter_job_status
 
 router = APIRouter()
 
@@ -29,9 +30,23 @@ def _verification_for_recruiter(db: Session, recruiter_id: int) -> tuple[str, in
 def _build_job_response(job: Job, *, current_user, applications: list[Application], db: Session) -> dict:
     application_count = len(applications)
     has_applied = current_user.role == "candidate" and any(app.user_id == current_user.id for app in applications)
-    can_apply = current_user.role == "candidate" and job.is_active and not has_applied
     deadline_passed = bool(job.application_deadline and job.application_deadline <= datetime.utcnow())
+    
+    # can_apply: Only candidates who haven't applied, job is active, and deadline hasn't passed
+    can_apply = current_user.role == "candidate" and job.is_active and not has_applied and not deadline_passed
     level, score = _verification_for_recruiter(db, job.created_by)
+    
+    # Calculate if there are pending applications
+    has_pending_applications = any(app.status not in ["rejected", "completed"] for app in applications)
+    
+    # Calculate recruiter status based on is_active and application_deadline
+    # Jobs show as "Active" when is_active=True and deadline hasn't passed
+    recruiter_status_str = recruiter_job_status(
+        is_active=job.is_active,
+        application_deadline=job.application_deadline,
+        application_count=application_count,
+        has_pending_applications=has_pending_applications,
+    )
 
     return {
         "id": job.id,
@@ -58,8 +73,8 @@ def _build_job_response(job: Job, *, current_user, applications: list[Applicatio
         "fraud_flags": job.fraud_flags or [],
         "company_verification_level": level,
         "company_trust_score": score,
-        "recruiter_status": "Active" if job.is_active else "Inactive",
-        "candidate_status": "Applied" if has_applied else ("Active" if job.is_active else "Inactive"),
+        "recruiter_status": recruiter_status_str,
+        "candidate_status": "Applied" if has_applied else ("Active" if job.is_active and not deadline_passed else "Inactive"),
         "has_applied": has_applied,
         "can_apply": can_apply,
         "deadline_passed": deadline_passed,
@@ -115,8 +130,8 @@ def create_job(
         experience_required=job.experience_required,
         application_count=job.application_count,
         department=job.department,
-        status=job.status,
-        is_active=job.is_active,
+        status="Active",  # Status will be calculated dynamically from is_active and deadline
+        is_active=True,  # Always True when created - will be managed by frontend/recruiter
         application_deadline=job.application_deadline,
         posted_expires_at=posted_expires_at,
         created_by=current_user.id,
@@ -217,6 +232,15 @@ def update_job(
     if "application_deadline" in update_data and update_data["application_deadline"] and job.posted_expires_at:
         if _to_utc_naive(update_data["application_deadline"]) > _to_utc_naive(job.posted_expires_at):
             raise HTTPException(status_code=400, detail="Application deadline must be within job expiry window")
+
+    # Ensure is_active is always True when updating (status is calculated dynamically)
+    # If is_active is in update_data but False, override it to True
+    if "is_active" in update_data and update_data["is_active"] is False:
+        update_data["is_active"] = True
+    
+    # Always keep status as "Active" - it will be calculated dynamically from is_active and deadline
+    if "status" in update_data:
+        update_data["status"] = "Active"
 
     for field, value in update_data.items():
         setattr(job, field, value)

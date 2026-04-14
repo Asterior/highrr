@@ -8,6 +8,39 @@ import PageLayout from "@/components/PageLayout";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
+interface ChatMessage {
+  id: string;
+  text: string;
+  isBot: boolean;
+}
+
+const applicationQuestions = [
+  { key: "phone", prompt: "Please share your mobile number for the recruiter." },
+  { key: "experience_years", prompt: "How many years of professional experience do you have?" },
+  { key: "cgpa", prompt: "Please share your CGPA or final grade (optional)." },
+  { key: "skills", prompt: "List your top skills for this role, separated by commas." },
+  { key: "notes", prompt: "Any extra note you’d like the recruiter to see? (optional)" },
+] as const;
+
+type ApplicationQuestionKey = (typeof applicationQuestions)[number]["key"];
+
+const parseChatAnswer = (key: ApplicationQuestionKey, answer: string) => {
+  const trimmed = answer.trim();
+  if (key === "experience_years") {
+    const value = Number(trimmed);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+  if (key === "cgpa") {
+    if (!trimmed) return undefined;
+    const value = Number(trimmed);
+    return Number.isFinite(value) ? value : null;
+  }
+  if (key === "skills") {
+    return trimmed ? trimmed.split(",").map((item) => item.trim()).filter(Boolean) : [];
+  }
+  return trimmed || undefined;
+};
+
 const CandidateJobs = () => {
   const navigate = useNavigate();
   const { jobs, applyToJob, loadJobs, isLoading } = useStore();
@@ -16,6 +49,17 @@ const CandidateJobs = () => {
   const [typeFilter, setTypeFilter] = useState("All");
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [confirmApply, setConfirmApply] = useState<string | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatStep, setChatStep] = useState(0);
+  const [applicationData, setApplicationData] = useState<{
+    phone?: string;
+    experience_years?: number;
+    cgpa?: number;
+    skills?: string[];
+    notes?: string;
+  }>({});
   const [loadingMessage, setLoadingMessage] = useState("");
 
   // Load jobs from API on component mount
@@ -44,10 +88,64 @@ const CandidateJobs = () => {
     return matchSearch && matchDept && matchType;
   });
 
-  const handleApply = async () => {
+  const startApplyChat = (jobId: string) => {
+    setConfirmApply(jobId);
+    setChatStep(0);
+    setApplicationData({});
+    setChatMessages([
+      { id: "bot-1", text: "This role requires a few additional details from you before applying.", isBot: true },
+      { id: "bot-2", text: applicationQuestions[0].prompt, isBot: true },
+    ]);
+    setChatInput("");
+    setIsChatOpen(true);
+  };
+
+  const appendChatMessages = (...messages: ChatMessage[]) => {
+    setChatMessages((prev) => [...prev, ...messages]);
+  };
+
+  const handleChatSubmit = async () => {
+    if (!confirmApply || !chatInput.trim()) return;
+
+    const userText = chatInput.trim();
+    const currentQuestion = applicationQuestions[chatStep];
+    const parsedValue = parseChatAnswer(currentQuestion.key, userText);
+
+    appendChatMessages({ id: `user-${Date.now()}`, text: userText, isBot: false });
+    setChatInput("");
+
+    if (parsedValue === null && currentQuestion.key !== "notes") {
+      appendChatMessages({
+        id: `bot-retry-${Date.now()}`,
+        text: currentQuestion.key === "experience_years"
+          ? "Please enter a valid number of years of experience."
+          : "Please provide a valid response.",
+        isBot: true,
+      });
+      return;
+    }
+
+    setApplicationData((prev) => ({
+      ...prev,
+      [currentQuestion.key]: parsedValue,
+    }));
+
+    const nextStep = chatStep + 1;
+    if (nextStep >= applicationQuestions.length) {
+      appendChatMessages({ id: `bot-end-${Date.now()}`, text: "Thanks! Submitting your application now.", isBot: true });
+      setChatStep(nextStep);
+      await submitApplicationFromChat();
+      return;
+    }
+
+    appendChatMessages({ id: `bot-${Date.now()}`, text: applicationQuestions[nextStep].prompt, isBot: true });
+    setChatStep(nextStep);
+  };
+
+  const submitApplicationFromChat = async () => {
     if (!confirmApply) return;
     try {
-      const success = await applyToJob(confirmApply);
+      const success = await applyToJob(confirmApply, applicationData);
       if (success) {
         toast({ title: "Application submitted!", description: "Your application has been sent successfully." });
       } else {
@@ -58,6 +156,10 @@ const CandidateJobs = () => {
       toast({ title: "Error", description: "Failed to submit application", variant: "destructive" });
     } finally {
       setConfirmApply(null);
+      setIsChatOpen(false);
+      setChatStep(0);
+      setApplicationData({});
+      setChatMessages([]);
     }
   };
 
@@ -130,7 +232,7 @@ const CandidateJobs = () => {
                   ) : !job.can_apply ? (
                     <span className="px-4 py-2 bg-muted text-muted-foreground rounded-xl text-sm font-semibold">Inactive</span>
                   ) : (
-                    <button onClick={() => setConfirmApply(job.id)} disabled={isLoading} className="gradient-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-semibold hover-lift disabled:opacity-50 disabled:cursor-not-allowed">
+                    <button onClick={() => startApplyChat(job.id)} disabled={isLoading} className="gradient-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-semibold hover-lift disabled:opacity-50 disabled:cursor-not-allowed">
                       Apply
                     </button>
                   )}
@@ -181,7 +283,7 @@ const CandidateJobs = () => {
               <DialogFooter>
                 <Button variant="outline" onClick={() => setSelectedJob(null)}>Close</Button>
                 {viewJob.can_apply && !viewJob.has_applied && (
-                  <Button onClick={() => { setConfirmApply(viewJob.id); setSelectedJob(null); }}>Apply Now</Button>
+                  <Button onClick={() => { startApplyChat(viewJob.id); setSelectedJob(null); }}>Apply Now</Button>
                 )}
               </DialogFooter>
             </>
@@ -189,14 +291,37 @@ const CandidateJobs = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Confirm Apply */}
-      <Dialog open={!!confirmApply} onOpenChange={() => setConfirmApply(null)}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader><DialogTitle>Confirm Application</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">Submit your application for this position? Your profile information will be shared with the employer.</p>
+      {/* Apply Chat Flow */}
+      <Dialog open={isChatOpen} onOpenChange={() => { setIsChatOpen(false); setConfirmApply(null); setChatMessages([]); setChatStep(0); setApplicationData({}); }}>
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Apply via Chat</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col h-[520px] bg-card rounded-3xl overflow-hidden border border-border">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {chatMessages.map((msg) => (
+                <div key={msg.id} className={`flex ${msg.isBot ? "justify-start" : "justify-end"}`}>
+                  <div className={`max-w-[85%] px-4 py-3 rounded-3xl text-sm ${msg.isBot ? "bg-muted text-foreground rounded-bl-none" : "gradient-primary text-primary-foreground rounded-br-none"}`}>
+                    <p className="whitespace-pre-line">{msg.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-border p-4 bg-background">
+              <div className="flex items-center gap-2">
+                <input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleChatSubmit()}
+                  placeholder="Type your response..."
+                  className="flex-1 bg-muted rounded-2xl px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                />
+                <Button disabled={!chatInput.trim()} onClick={handleChatSubmit}>Send</Button>
+              </div>
+            </div>
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmApply(null)}>Cancel</Button>
-            <Button onClick={handleApply}>Submit Application</Button>
+            <Button variant="outline" onClick={() => { setIsChatOpen(false); setConfirmApply(null); setChatMessages([]); setChatStep(0); setApplicationData({}); }}>Cancel</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
