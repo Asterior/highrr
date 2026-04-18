@@ -33,6 +33,8 @@ from app.api.v1.endpoints import trust
 from app.models.company_verification import CompanyVerification
 from app.models.user import User
 
+from app.api.v1.endpoints.websocket import router as ws_router
+
 app = FastAPI()
 
 default_origins = [
@@ -166,6 +168,7 @@ app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 app.include_router(candidate_profile_routes.router)
 app.include_router(file_upload.router)
 app.include_router(trust.router, prefix="/trust", tags=["Trust"])
+app.include_router(ws_router)
 
 @app.get("/")
 def root():

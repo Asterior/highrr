@@ -1,126 +1,266 @@
-import { useState, useRef, useEffect } from "react";
-import { Send, Search } from "lucide-react";
-import { motion } from "framer-motion";
+// frontend/src/pages/Messages.tsx
+import { useEffect, useState, useRef, useCallback } from "react";
+import { Send, Search, AlertTriangle, Flag } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useStore } from "@/stores/useStore";
-import PageLayout from "@/components/PageLayout";
+import { useChat } from "@/hooks/useChat";
+import { reportUser } from "@/services/api";
+import { toast } from "@/hooks/use-toast";
 
 const Messages = () => {
-  const { conversations, sendMessage, user } = useStore();
-  const [activeChatId, setActiveChatId] = useState(conversations[0]?.id || "");
-  const [newMessage, setNewMessage] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { user, conversations, loadConversations, loadMessages, sendMessage } = useStore();
+  const navigate = useNavigate();
 
-  const activeConv = conversations.find((c) => c.id === activeChatId);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [inputText, setInputText] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [reportingMsgId, setReportingMsgId] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const filteredConvs = conversations.filter((c) =>
-    c.participant_name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+// Load conversations on mount
+  useEffect(() => { loadConversations(); }, []);
 
+  // Auto-select first conversation if no URL param
   useEffect(() => {
-    if (!activeChatId && filteredConvs.length > 0) {
-      setActiveChatId(filteredConvs[0].id);
+    const params = new URLSearchParams(window.location.search);
+    const convId = params.get("conversation");
+    if (!convId && !selectedId && conversations.length > 0) {
+      setSelectedId(conversations[0].id);
     }
-    if (activeChatId && !filteredConvs.some((c) => c.id === activeChatId) && filteredConvs.length > 0) {
-      setActiveChatId(filteredConvs[0].id);
-    }
-  }, [activeChatId, filteredConvs]);
+  }, [conversations]);
 
+  // When a conversation is selected, load its messages
+  useEffect(() => { if (selectedId) loadMessages(selectedId); }, [selectedId]);
+
+  const selectedConv = conversations.find((c) => c.id === selectedId) ?? null;
+
+  // Auto-scroll to bottom when messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeConv?.messages.length]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selectedConv?.messages?.length]);
 
-  const handleSend = () => {
-    if (!newMessage.trim() || !activeChatId) return;
-    sendMessage(activeChatId, newMessage.trim());
-    setNewMessage("");
+  // Select conversation from URL ?conversation=id — re-runs after loadConversations fills the list
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const convId = params.get("conversation");
+    if (!convId) return;
+    setSelectedId(convId);
+  }, [conversations]);
+
+  const { status, isTyping, otherUserOnline, sendWsMessage, sendTyping } = useChat({
+    conversationId: selectedId,
+  });
+
+  const handleSend = useCallback(async () => {
+  const text = inputText.trim();
+  if (!text || !selectedId) return;
+  setInputText("");
+  sendTyping(false);
+  if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+  // FIX: REST only — removing sendWsMessage here stops double DB writes
+  // The backend WebSocket broadcasts the saved message to the other participant
+  await sendMessage(selectedId, text);
+}, [inputText, selectedId, sendMessage, sendTyping]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputText(e.target.value);
+    if (status === "connected") {
+      sendTyping(true);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => sendTyping(false), 2000);
+    }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
+
+  // STEP 6: report a message/recruiter
+  const handleReport = async (msg: any) => {
+    if (reportingMsgId === msg.id) return;
+    setReportingMsgId(msg.id);
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+      const conv = conversations.find((c) => c.id === selectedId);
+      if (!conv) return;
+      // sender of the flagged message is the recruiter we're reporting
+      await reportUser(token, {
+        recruiter_id: Number(msg.sender_id),
+        category: "scam",
+        details: `Flagged message: "${msg.message.slice(0, 200)}"`,
+      });
+      toast({ title: "Reported", description: "This message has been reported to our team." });
+    } catch {
+      toast({ title: "Error", description: "Failed to submit report.", variant: "destructive" });
+    } finally {
+      setReportingMsgId(null);
     }
+  };
+
+  const filtered = conversations.filter((c) =>
+    c.participant_name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const statusDot = () => {
+    if (status === "connected") return "bg-green-500";
+    if (status === "connecting") return "bg-yellow-400 animate-pulse";
+    return "bg-gray-400";
   };
 
   return (
-    <PageLayout>
-      <h1 className="text-3xl font-bold text-foreground mb-6">Messages</h1>
-
-      <div className="bg-card rounded-2xl border border-border shadow-card overflow-hidden" style={{ height: "calc(100vh - 200px)" }}>
-        <div className="flex h-full">
-          <div className="w-80 border-r border-border flex flex-col">
-            <div className="p-4 border-b border-border">
-              <div className="flex items-center gap-2 bg-muted rounded-xl px-3 py-2">
-                <Search className="w-4 h-4 text-muted-foreground" />
-                <input type="text" placeholder="Search messages..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-transparent text-sm outline-none w-full placeholder:text-muted-foreground" />
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {filteredConvs.length === 0 && (
-                <div className="h-full flex items-center justify-center px-6 text-center text-sm text-muted-foreground">
-                  No conversations matched your search.
-                </div>
-              )}
-              {filteredConvs.map((c) => (
-                <button key={c.id} onClick={() => setActiveChatId(c.id)} className={`w-full flex items-center gap-3 p-4 text-left transition-colors ${activeChatId === c.id ? "bg-secondary" : "hover:bg-muted"}`}>
-                  <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-semibold flex-shrink-0">{c.participant_avatar}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-foreground truncate">{c.participant_name}</p>
-                      <span className="text-xs text-muted-foreground">{c.last_message_time}</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">{c.last_message}</p>
-                  </div>
-                  {c.unread_count > 0 && (
-                    <span className="w-5 h-5 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-[10px] font-bold">{c.unread_count}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex-1 flex flex-col">
-            {activeConv ? (
-              <>
-                <div className="p-4 border-b border-border flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">{activeConv.participant_avatar}</div>
-                  <p className="font-semibold text-foreground">{activeConv.participant_name}</p>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                  {activeConv.messages.map((msg) => {
-                    const isMe = msg.sender_id === user.id;
-                    return (
-                      <motion.div key={msg.id} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-                        <div className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm ${isMe ? "gradient-primary text-primary-foreground rounded-br-md" : "bg-muted text-foreground rounded-bl-md"}`}>
-                          <p>{msg.message}</p>
-                          <p className={`text-[10px] mt-1 ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                            {new Date(msg.sent_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </p>
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                  <div ref={messagesEndRef} />
-                </div>
-
-                <div className="p-4 border-t border-border">
-                  <div className="flex items-center gap-3">
-                    <input type="text" placeholder="Type a message..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyDown={handleKeyDown} className="flex-1 bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow" />
-                    <button onClick={handleSend} disabled={!newMessage.trim()} className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center text-primary-foreground hover-lift disabled:opacity-50">
-                      <Send className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex-1 flex items-center justify-center text-muted-foreground">Select a conversation</div>
-            )}
+    <div className="flex h-[calc(100vh-4rem)] mt-16 bg-background">
+      {/* ── Sidebar ── */}
+      <div className="w-80 border-r border-border flex flex-col">
+        <div className="p-4 border-b border-border">
+          <h2 className="text-lg font-semibold text-foreground mb-3">Messages</h2>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search conversations..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 text-sm bg-muted rounded-lg border-0 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
           </div>
         </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">No conversations yet</div>
+          ) : (
+            filtered.map((conv) => (
+              <button
+                key={conv.id}
+                onClick={() => setSelectedId(conv.id)}
+                className={`w-full p-4 flex items-start gap-3 hover:bg-muted/50 transition-colors text-left border-b border-border/50 ${selectedId === conv.id ? "bg-muted" : ""}`}
+              >
+                <div className="relative flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm">
+                    {conv.participant_avatar}
+                  </div>
+                  {selectedId === conv.id && otherUserOnline && (
+                    <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-background" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-foreground truncate">{conv.participant_name}</span>
+                    <span className="text-xs text-muted-foreground flex-shrink-0 ml-1">{conv.last_message_time}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">{conv.last_message || "No messages yet"}</p>
+                </div>
+                {conv.unread_count > 0 && (
+                  <span className="flex-shrink-0 bg-primary text-primary-foreground text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                    {conv.unread_count}
+                  </span>
+                )}
+              </button>
+            ))
+          )}
+        </div>
       </div>
-    </PageLayout>
+
+      {/* ── Chat Panel ── */}
+      {selectedConv ? (
+        <div className="flex-1 flex flex-col">
+          {/* header */}
+          <div className="h-16 border-b border-border flex items-center justify-between px-6">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm">
+                {selectedConv.participant_avatar}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground">{selectedConv.participant_name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {isTyping ? "Typing…" : otherUserOnline ? "Online" : "Offline"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${statusDot()}`} />
+              <span className="text-xs text-muted-foreground capitalize">{status}</span>
+            </div>
+          </div>
+
+          {/* messages */}
+          <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-3">
+            {(selectedConv.messages ?? []).length === 0 ? (
+              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+                No messages yet. Say hello!
+              </div>
+            ) : (
+              (selectedConv.messages ?? []).map((msg: any) => {
+                const isMine = String(msg.sender_id) === String(user.id);
+                return (
+                  <div key={msg.id} className={`flex flex-col gap-1 ${isMine ? "items-end" : "items-start"}`}>
+                    {/* STEP 6: flagged message warning banner */}
+                    {msg.is_flagged && !isMine && (
+                      <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-800 max-w-[70%]">
+                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>This message may contain suspicious content.</span>
+                        <button
+                          onClick={() => handleReport(msg)}
+                          disabled={reportingMsgId === msg.id}
+                          className="ml-auto flex items-center gap-1 text-red-600 hover:text-red-700 font-semibold disabled:opacity-50"
+                        >
+                          <Flag className="w-3 h-3" />
+                          {reportingMsgId === msg.id ? "Reporting…" : "Report"}
+                        </button>
+                      </div>
+                    )}
+                    <div className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm ${isMine ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-muted text-foreground rounded-bl-sm"}`}>
+                      {msg.message}
+                      <span className={`block text-right text-[10px] mt-1 ${isMine ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
+                        {new Date(msg.sent_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+
+            {isTyping && (
+              <div className="flex justify-start">
+                <div className="bg-muted px-4 py-2.5 rounded-2xl rounded-bl-sm flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-bounce [animation-delay:0ms]" />
+                  <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 bg-muted-foreground/60 rounded-full animate-bounce [animation-delay:300ms]" />
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          {/* input */}
+          <div className="border-t border-border p-4">
+            <div className="flex items-center gap-3">
+              <input
+                type="text"
+                placeholder="Type a message…"
+                value={inputText}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                className="flex-1 px-4 py-2.5 text-sm bg-muted rounded-xl border-0 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+              <button
+                onClick={handleSend}
+                disabled={!inputText.trim()}
+                className="p-2.5 rounded-xl bg-primary text-primary-foreground disabled:opacity-40 hover:opacity-90 transition-opacity"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+          Select a conversation to start chatting
+        </div>
+      )}
+    </div>
   );
 };
 

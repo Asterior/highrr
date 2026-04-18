@@ -1,3 +1,4 @@
+//frontend/src/services/api.ts
 const DEFAULT_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || DEFAULT_BASE_URL;
 
@@ -66,6 +67,7 @@ interface JobPayload {
   status?: string;
   is_active?: boolean;
   application_count?: number;
+  application_deadline?: string;
 }
 
 /**
@@ -690,5 +692,95 @@ export async function reviewVerificationSubmission(
     throw new Error(err.detail || "Failed to update verification review");
   }
 
+  return res.json();
+}
+// ─── Messaging API ────────────────────────────────────────────────────────────
+
+export async function getConversations(token: string) {
+  const res = await fetch(`${BASE_URL}/conversations/`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Failed to fetch conversations");
+  return res.json();
+}
+
+export async function startConversation(token: string, participantId: number) {
+  const res = await fetch(`${BASE_URL}/conversations/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ participant_id: participantId }),
+  });
+  if (!res.ok) throw new Error("Failed to start conversation");
+  return res.json();
+}
+
+export async function getMessages(token: string, conversationId: number | string) {
+  const res = await fetch(`${BASE_URL}/conversations/${conversationId}/messages`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Failed to fetch messages");
+  return res.json();
+}
+
+export async function sendMessageApi(
+  token: string,
+  conversationId: number | string,
+  receiverId: number | string,
+  message: string,
+) {
+  const res = await fetch(`${BASE_URL}/conversations/${conversationId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ receiver_id: Number(receiverId), message }),
+  });
+  if (!res.ok) throw new Error("Failed to send message");
+  return res.json();
+}
+
+export async function markMessageRead(token: string, messageId: number | string) {
+  const res = await fetch(`${BASE_URL}/messages/${messageId}/read`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Failed to mark message as read");
+  return res.json();
+}
+
+export const getTotalUnreadCount = async (): Promise<number> => {
+  const token = localStorage.getItem("token");
+  if (!token) return 0;
+  try {
+    const res = await fetch(`${BASE_URL}/messages/unread-count`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return 0;
+    const data = await res.json();
+    return data.unread_count ?? 0;
+  } catch {
+    return 0;
+  }
+};
+
+export async function reportUser(
+  token: string,
+  payload: {
+    recruiter_id?: number;
+    job_id?: number;
+    category: "scam" | "no_response" | "fake_job";
+    details?: string;
+  }
+) {
+  const res = await fetch(`${BASE_URL}/trust/report`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to submit report");
+  }
   return res.json();
 }

@@ -18,9 +18,15 @@ const navItems = [
 
 const Navbar = () => {
   const location = useLocation();
-  const { user, logout } = useStore();
+  // STEP 2: pull totalUnread and loadTotalUnread from store
+  const { user, logout, totalUnread, loadTotalUnread } = useStore();
   const [showDropdown, setShowDropdown] = useState(false);
   const [trustScore, setTrustScore] = useState<number | null>(null);
+
+  // STEP 2: load unread count on mount
+  useEffect(() => {
+    loadTotalUnread();
+  }, []);
 
   useEffect(() => {
     const loadTrust = async () => {
@@ -44,42 +50,57 @@ const Navbar = () => {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 h-16 bg-background border-b border-border shadow-card">
       <div className="max-w-7xl mx-auto h-full flex items-center justify-between px-6">
-<Link to="/" className="flex items-center">
-  <img 
-    src="/highrrlogo.png" 
-    alt="Highrr Logo" 
-    className="h-8 w-auto object-contain"
-  />
-</Link>
+        <Link to="/" className="flex items-center">
+          <img
+            src="/highrrlogo.png"
+            alt="Highrr Logo"
+            className="h-8 w-auto object-contain"
+          />
+        </Link>
 
         <div className="hidden lg:flex items-center gap-1">
-          {navItems.filter((item) => item.path !== "/verification-queue" || user.role === "admin").map((item) => {
-            const isActive = location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path));
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`relative px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  isActive
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {item.label}
-                {isActive && (
-                  <motion.div
-                    layoutId="nav-indicator"
-                    className="absolute bottom-0 left-1/2 -translate-x-1/2 w-5 h-0.5 rounded-full gradient-primary"
-                  />
-                )}
-              </Link>
-            );
-          })}
+          {navItems
+            .filter((item) => item.path !== "/verification-queue" || user.role === "admin")
+            .map((item) => {
+              const isActive =
+                location.pathname === item.path ||
+                (item.path !== "/" && location.pathname.startsWith(item.path));
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`relative px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    isActive
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {item.label}
+
+                  {/* STEP 2: unread badge — only shown on Messages link */}
+                  {item.path === "/messages" && totalUnread > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-4 w-4 flex items-center justify-center leading-none">
+                      {totalUnread > 99 ? "99+" : totalUnread}
+                    </span>
+                  )}
+
+                  {isActive && (
+                    <motion.div
+                      layoutId="nav-indicator"
+                      className="absolute bottom-0 left-1/2 -translate-x-1/2 w-5 h-0.5 rounded-full gradient-primary"
+                    />
+                  )}
+                </Link>
+              );
+            })}
         </div>
 
         <div className="flex items-center gap-3">
           {user.role === "recruiter" && trustScore !== null && (
-            <Link to="/verify-company" className="hidden md:inline-flex rounded-full bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700">
+            <Link
+              to="/verify-company"
+              className="hidden md:inline-flex rounded-full bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700"
+            >
               Trust {trustScore}/100
             </Link>
           )}
@@ -122,7 +143,10 @@ const Navbar = () => {
                 )}
                 <Link
                   to="/login"
-                  onClick={() => { setShowDropdown(false); logout(); }}
+                  onClick={() => {
+                    setShowDropdown(false);
+                    logout();
+                  }}
                   className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                 >
                   <LogOut className="w-4 h-4" />
