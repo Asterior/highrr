@@ -31,7 +31,17 @@ interface AppState {
   loadApplications: (filterStatus?: string) => Promise<void>;
   updateApplicationStatus: (id: string, status: PipelineStatus) => Promise<boolean>;
   updateApplication: (id: string, data: Partial<Application>) => void;
-  applyToJob: (jobId: string) => Promise<boolean>;
+  applyToJob: (jobId: string, applicationData?: {
+    score?: number;
+    skills?: string[];
+    experience_years?: number;
+    avatar?: string;
+    role?: string;
+    location?: string;
+    phone?: string;
+    cgpa?: number;
+    notes?: string;
+  }) => Promise<boolean>;
   bulkUpdateStatus: (ids: string[], status: PipelineStatus) => number;
 
   interviews: Interview[];
@@ -200,13 +210,81 @@ export const useStore = create<AppState>((set, get) => ({
       return true;
     } catch { return false; }
   },
-  updateApplication: (id, data) => set((s) => ({ applications: s.applications.map((a) => (a.id === id ? { ...a, ...data } : a)) })),
-  applyToJob: async (jobId: string) => {
-    try {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Not authenticated");
-      await applyToJobAPI(jobId, token);
-      set((s) => ({ jobs: s.jobs.map((j) => j.id === jobId ? { ...j, has_applied: true, can_apply: false } : j) }));
+
+  updateApplication: (id, data) =>
+    set((s) => ({ applications: s.applications.map((a) => (a.id === id ? { ...a, ...data } : a)) })),
+
+  applyToJob: async (jobId, applicationData = {}) => {
+      try {
+        const user = get().user;
+        const token = localStorage.getItem("token");
+        if (!token) throw new Error("Not authenticated");
+
+        // Check if already applied
+        const existing = get().applications.find((a) => a.user_id === user.id && a.job_id === jobId);
+        if (existing) return false;
+
+        const job = get().jobs.find((j) => j.id === jobId);
+        if (!job) return false;
+
+        // Calculate skill match score
+        const skillMatch = user.skills
+          ? Math.round((user.skills.filter((s) => job.required_skills.some((rs) => rs.toLowerCase() === s.toLowerCase())).length / Math.max(job.required_skills.length, 1)) * 100)
+          : Math.floor(Math.random() * 30) + 60;
+
+        const score = Math.min(skillMatch + Math.floor(Math.random() * 10), 100);
+
+        // Call API to apply to job
+        const response = await applyToJobAPI(jobId, token, {
+          score,
+          skills: applicationData.skills ?? user.skills ?? [],
+          experience_years: applicationData.experience_years ?? user.experience_years ?? 0,
+          avatar: applicationData.avatar ?? user.avatar,
+          role: applicationData.role ?? job.title,
+          location: applicationData.location ?? user.location,
+          phone: applicationData.phone ?? user.phone,
+          cgpa: applicationData.cgpa ?? user.cgpa,
+          notes: applicationData.notes ?? undefined,
+      });
+
+      // Add to local state with converted ID (ensure job_id is string for consistency)
+      const newApp: Application = {
+        id: response.id.toString(),
+        user_id: user.id,
+        job_id: String(response.job_id),  // Ensure job_id is stored as string
+        candidate_name: user.name,
+        candidate_email: user.email,
+        status: "applied",
+        score: response.score,
+        assigned_to: null,
+        notes: null,
+        applied_at: response.applied_at || new Date().toISOString(),
+        skills: response.skills || user.skills || [],
+        experience_years: response.experience_years || user.experience_years || 0,
+        avatar: response.avatar || user.avatar,
+        role: response.role || job.title,
+        location: response.location || user.location,
+        phone: response.phone || user.phone,
+        cgpa: response.cgpa || user.cgpa,
+        resume_url: response.resume_url || user.resume_url,
+        status_history: [{ status: "applied", date: new Date().toISOString().split("T")[0] }],
+      };
+
+      set((s) => ({
+        applications: [...s.applications, newApp],
+        jobs: s.jobs.map((j) => {
+          if (j.id !== jobId) return j;
+          const nextCount = j.application_count + 1;
+          return {
+            ...j,
+            application_count: nextCount,
+            has_applied: true,
+            can_apply: false,
+            candidate_status: "Applied",
+            applications_label: nextCount === 1 ? "1 application" : `${nextCount} applications`,
+          };
+        }),
+      }));
       return true;
     } catch { return false; }
   },

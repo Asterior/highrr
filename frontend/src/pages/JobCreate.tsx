@@ -35,7 +35,6 @@ const JobCreate = () => {
     job_type: "full-time" as "full-time" | "intern" | "contract",
     required_skills: "",
     experience_required: "",
-    status: "Active" as "Active" | "Inactive",
     application_deadline: "",
   });
 
@@ -65,8 +64,8 @@ const JobCreate = () => {
         job_type: form.job_type,
         required_skills: form.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
         experience_required: form.experience_required,
-        is_active: form.status === "Active",
-        status: form.status,
+        is_active: true,
+        status: "Active",
         application_deadline: toDeadlineIso(form.application_deadline),
       });
       toast({ title: "Job created!", description: `${form.title} has been posted.` });
@@ -136,10 +135,9 @@ const JobCreate = () => {
           </div>
         </motion.div>
 
-        {/* Company Info */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-card rounded-2xl border border-border p-6 shadow-card">
           <h2 className="text-lg font-semibold text-foreground mb-4">Compensation, Type & Hiring Intent</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Salary Range *</label>
               <input value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} placeholder="e.g. ₹25-35 LPA" className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow" />
@@ -153,13 +151,6 @@ const JobCreate = () => {
               </select>
             </div>
             <div>
-              <label className="text-sm font-medium text-foreground mb-1.5 block">Status</label>
-              <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as any })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
-                <option>Active</option>
-                <option>Inactive</option>
-              </select>
-            </div>
-            <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Last Date to Apply *</label>
               <input
                 type="date"
@@ -167,7 +158,7 @@ const JobCreate = () => {
                 onChange={(e) => setForm({ ...form, application_deadline: e.target.value })}
                 className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow"
               />
-              <p className="text-xs text-muted-foreground mt-1">Applications will be closed automatically after this date.</p>
+              <p className="text-xs text-muted-foreground mt-1">Status will be Active until this date.</p>
             </div>
           </div>
 

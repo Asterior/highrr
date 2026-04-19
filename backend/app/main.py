@@ -88,6 +88,26 @@ def _apply_schema_compatibility_patches() -> None:
         else:
             conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS fraud_flags JSON"))
 
+        application_columns = [
+            ("candidate_profile_id", "INTEGER"),
+            ("candidate_location", "TEXT"),
+            ("current_role", "TEXT"),
+            ("current_company", "TEXT"),
+            ("highest_qualification", "TEXT"),
+            ("profile_completion_percentage", "INTEGER"),
+        ]
+
+        for column_name, column_type in application_columns:
+            existing = conn.execute(
+                text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name = 'applications' AND column_name = :column"
+                ),
+                {"column": column_name},
+            ).first()
+            if not existing:
+                conn.execute(text(f"ALTER TABLE applications ADD COLUMN {column_name} {column_type}"))
+
 
 def _ensure_demo_recruiter() -> None:
     from app.db.session import SessionLocal
