@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Search, MessageSquare, Eye, ArrowRight, CalendarClock, Download, Mail, Phone, MapPin, GraduationCap, Briefcase, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useStore } from "@/stores/useStore";
 import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
@@ -9,7 +9,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { getCandidateProfileByUser } from "@/services/api";
 
 const Candidates = () => {
-  const { applications, jobs, loadApplications, updateApplicationStatus, isLoading } = useStore();
+  const { applications, jobs, loadApplications, updateApplicationStatus, startConversation, isLoading } = useStore();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [jobFilter, setJobFilter] = useState("All");
   const [skillFilter, setSkillFilter] = useState("All");
@@ -20,8 +21,8 @@ const Candidates = () => {
   const [selectedCandidate, setSelectedCandidate] = useState<any | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<any | null>(null);
   const [drawerLoading, setDrawerLoading] = useState(false);
+  const [messagingId, setMessagingId] = useState<string | null>(null);
 
-  // Load applications from API on component mount
   useEffect(() => {
     const loadAppData = async () => {
       try {
@@ -37,12 +38,10 @@ const Candidates = () => {
     loadAppData();
   }, [loadApplications]);
 
-  // Get unique skills from applications
   const allSkills = [...new Set(applications.flatMap((a) => a.skills))];
   const allLocations = [...new Set(applications.map((a) => a.candidate_location || a.location || "Unknown"))];
   const allQualifications = [...new Set(applications.map((a) => a.highest_qualification || "Not specified"))];
 
-  // Filter candidates based on search and filter criteria
   const filtered = applications.filter((c) => {
     const matchSearch = c.candidate_name.toLowerCase().includes(search.toLowerCase()) || c.role.toLowerCase().includes(search.toLowerCase());
     const matchJob = jobFilter === "All" || c.job_id === jobFilter;
@@ -68,6 +67,27 @@ const Candidates = () => {
       setSelectedProfile(null);
     } finally {
       setDrawerLoading(false);
+    }
+  };
+
+  // FIX: create or find conversation then navigate with ?conversation=id
+  const handleMessage = async (candidate: any) => {
+    if (!candidate.user_id) {
+      toast({ title: "Cannot message", description: "Candidate user ID not found.", variant: "destructive" });
+      return;
+    }
+    setMessagingId(candidate.id);
+    try {
+      const convId = await startConversation(Number(candidate.user_id));
+      if (convId) {
+        navigate(`/messages?conversation=${convId}`);
+      } else {
+        toast({ title: "Error", description: "Could not start conversation.", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to open conversation.", variant: "destructive" });
+    } finally {
+      setMessagingId(null);
     }
   };
 
@@ -129,40 +149,47 @@ const Candidates = () => {
           <Search className="w-4 h-4 text-muted-foreground" />
           <input type="text" placeholder="Search candidates..." value={search} onChange={(e) => setSearch(e.target.value)} className="bg-transparent text-sm outline-none w-full placeholder:text-muted-foreground" />
         </div>
-        <select value={jobFilter} onChange={(e) => setJobFilter(e.target.value)} className="bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
+        <select value={jobFilter} onChange={(e) => setJobFilter(e.target.value)} className="px-3 py-2.5 bg-muted rounded-xl text-sm outline-none">
           <option value="All">All Jobs</option>
           {jobs.map((j) => <option key={j.id} value={j.id}>{j.title}</option>)}
         </select>
-        <select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
+        <select value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} className="px-3 py-2.5 bg-muted rounded-xl text-sm outline-none">
           <option value="All">All Skills</option>
           {allSkills.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select value={expFilter} onChange={(e) => setExpFilter(e.target.value)} className="bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
-          <option value="All">Any Experience</option>
-          <option value="0-2">0-2 years</option>
-          <option value="3-5">3-5 years</option>
+        <select value={expFilter} onChange={(e) => setExpFilter(e.target.value)} className="px-3 py-2.5 bg-muted rounded-xl text-sm outline-none">
+          <option value="All">All Experience</option>
+          <option value="0-2">0–2 years</option>
+          <option value="3-5">3–5 years</option>
           <option value="5+">5+ years</option>
         </select>
-        <select value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)} className="bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
+        <select value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)} className="px-3 py-2.5 bg-muted rounded-xl text-sm outline-none">
           <option value="All">All Locations</option>
-          {allLocations.map((location) => <option key={location} value={location}>{location}</option>)}
+          {allLocations.map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
-        <select value={educationFilter} onChange={(e) => setEducationFilter(e.target.value)} className="bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
+        <select value={educationFilter} onChange={(e) => setEducationFilter(e.target.value)} className="px-3 py-2.5 bg-muted rounded-xl text-sm outline-none">
           <option value="All">All Education</option>
-          {allQualifications.map((qualification) => <option key={qualification} value={qualification}>{qualification}</option>)}
+          {allQualifications.map((q) => <option key={q} value={q}>{q}</option>)}
         </select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 mt-8">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.map((c, i) => (
-          <motion.div key={c.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }} className="bg-card rounded-2xl border border-border p-6 shadow-card hover-lift">
-            <div className="flex items-start justify-between">
+          <motion.div
+            key={c.id}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.04 }}
+            className="rounded-2xl border border-border bg-card p-5 shadow-card hover-lift"
+          >
+            <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-semibold text-sm">{c.avatar}</div>
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm flex-shrink-0">
+                  {c.candidate_name.charAt(0).toUpperCase()}
+                </div>
                 <div>
-                  <p className="font-semibold text-foreground">{c.candidate_name}</p>
-                  <p className="text-sm text-muted-foreground">{c.role}</p>
-                  <p className="text-xs text-muted-foreground">{c.candidate_email}</p>
+                  <p className="text-sm font-semibold text-foreground">{c.candidate_name}</p>
+                  <p className="text-xs text-muted-foreground">{c.role}</p>
                 </div>
               </div>
               <div className="px-2.5 py-1 rounded-full bg-secondary text-accent-foreground text-xs font-bold">{c.score}%</div>
@@ -195,9 +222,16 @@ const Candidates = () => {
                   Reject
                 </button>
               )}
-              <Link to="/messages" className="px-3 py-2 bg-muted text-muted-foreground rounded-xl text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors flex items-center">
-                <MessageSquare className="w-4 h-4" />
-              </Link>
+              {/* FIX: was <Link to="/messages"> — now starts/finds conversation first */}
+              <button
+                onClick={() => handleMessage(c)}
+                disabled={messagingId === c.id}
+                className="px-3 py-2 bg-muted text-muted-foreground rounded-xl text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors flex items-center disabled:opacity-50"
+              >
+                {messagingId === c.id
+                  ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  : <MessageSquare className="w-4 h-4" />}
+              </button>
             </div>
           </motion.div>
         ))}

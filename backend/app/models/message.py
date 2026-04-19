@@ -1,3 +1,4 @@
+# backend/app/models/message.py
 from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Text
@@ -15,3 +16,4 @@ class Message(Base):
     message = Column(Text, nullable=False)
     sent_at = Column(DateTime, default=datetime.utcnow)
     is_read = Column(Boolean, default=False)
+    is_flagged = Column(Boolean, default=False)
