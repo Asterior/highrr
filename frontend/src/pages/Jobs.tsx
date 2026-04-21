@@ -5,8 +5,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { useStore } from "@/stores/useStore";
 import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
+import VerificationBadge from "@/components/VerificationBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { EmployerBadgeResponse, getEmployerBadge } from "@/services/api";
 
 const formatDateInputValue = (value?: string | null) => {
   if (!value) return "";
@@ -28,8 +30,9 @@ const Jobs = () => {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [loadingMessage, setLoadingMessage] = useState("");
+  const [badgesByRecruiter, setBadgesByRecruiter] = useState<Record<number, EmployerBadgeResponse>>({});
 
-  const [form, setForm] = useState<{ title: string; description: string; location: string; salary: string; responsibilities: string; hiring_timeline: string; actively_hiring: boolean; department: string; job_type: "full-time" | "intern" | "contract"; required_skills: string; experience_required: string; application_deadline: string }>({ title: "", description: "", location: "", salary: "", responsibilities: "", hiring_timeline: "", actively_hiring: true, department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", application_deadline: "" });
+  const [form, setForm] = useState<{ title: string; description: string; location: string; salary: string; responsibilities: string; hiring_timeline: string; actively_hiring: boolean; department: string; job_type: "full-time" | "intern" | "contract"; required_skills: string; experience_required: string; status: "Active" | "Inactive"; application_deadline: string }>({ title: "", description: "", location: "", salary: "", responsibilities: "", hiring_timeline: "", actively_hiring: true, department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active", application_deadline: "" });
 
   // Load jobs from database on component mount
   useEffect(() => {
@@ -47,7 +50,38 @@ const Jobs = () => {
     loadJobsData();
   }, [loadJobs]);
 
-  const resetForm = () => setForm({ title: "", description: "", location: "", salary: "", responsibilities: "", hiring_timeline: "", actively_hiring: true, department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", application_deadline: "" });
+  useEffect(() => {
+    const recruiterIds = Array.from(new Set(jobs.map((job) => Number(job.created_by)).filter(Boolean)));
+    const missingIds = recruiterIds.filter((id) => !(id in badgesByRecruiter));
+    if (missingIds.length === 0) return;
+
+    let cancelled = false;
+    const loadBadges = async () => {
+      const updates: Record<number, EmployerBadgeResponse> = {};
+      await Promise.all(
+        missingIds.map(async (recruiterId) => {
+          try {
+            updates[recruiterId] = await getEmployerBadge(recruiterId);
+          } catch {
+            // Badge is optional and should fail silently.
+          }
+        })
+      );
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setBadgesByRecruiter((prev) => ({ ...prev, ...updates }));
+      }
+    };
+
+    loadBadges().catch(() => {
+      // Badge is optional and should fail silently.
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [jobs, badgesByRecruiter]);
+
+  const resetForm = () => setForm({ title: "", description: "", location: "", salary: "", responsibilities: "", hiring_timeline: "", actively_hiring: true, department: "Engineering", job_type: "full-time", required_skills: "", experience_required: "", status: "Active", application_deadline: "" });
 
   const departments = ["All", ...new Set(jobs.map((j) => j.department))];
   const filtered = jobs.filter((j) => {
@@ -59,7 +93,7 @@ const Jobs = () => {
   const handleEdit = (jobId: string) => {
     const job = jobs.find((j) => j.id === jobId);
     if (!job) return;
-    setForm({ title: job.title, description: job.description, location: job.location, salary: job.salary, responsibilities: job.responsibilities || "", hiring_timeline: job.hiring_timeline || "", actively_hiring: job.actively_hiring ?? true, department: job.department, job_type: job.job_type, required_skills: job.required_skills.join(", "), experience_required: job.experience_required, application_deadline: formatDateInputValue(job.application_deadline) });
+    setForm({ title: job.title, description: job.description, location: job.location, salary: job.salary, responsibilities: job.responsibilities || "", hiring_timeline: job.hiring_timeline || "", actively_hiring: job.actively_hiring ?? true, department: job.department, job_type: job.job_type, required_skills: job.required_skills.join(", "), experience_required: job.experience_required, status: job.is_active ? "Active" : "Inactive", application_deadline: formatDateInputValue(job.application_deadline) });
     setEditingJob(jobId);
     setMenuOpen(null);
   };
@@ -80,8 +114,8 @@ const Jobs = () => {
         job_type: form.job_type,
         required_skills: form.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
         experience_required: form.experience_required,
-        is_active: true,
-        status: "Active",
+        is_active: form.status === "Active",
+        status: form.status,
         application_deadline: form.application_deadline ? toDeadlineIso(form.application_deadline) : undefined,
       });
       toast({ title: "Job updated", description: `${form.title} has been updated.` });
@@ -159,6 +193,19 @@ const Jobs = () => {
           {filtered.map((job, i) => (
             <motion.div key={job.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ delay: i * 0.05 }} className="bg-card rounded-2xl border border-border p-6 shadow-card hover-lift flex items-center justify-between">
               <div className="flex-1">
+                {badgesByRecruiter[Number(job.created_by)] && (
+                  <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Company {job.created_by}</span>
+                    <VerificationBadge
+                      badgeLevel={badgesByRecruiter[Number(job.created_by)].badge_level}
+                      checks={{
+                        gst: badgesByRecruiter[Number(job.created_by)].gst_verified,
+                        domain: badgesByRecruiter[Number(job.created_by)].domain_verified,
+                        linkedin: badgesByRecruiter[Number(job.created_by)].linkedin_verified,
+                      }}
+                    />
+                  </div>
+                )}
                 <div className="flex items-center gap-3">
                   <h3 className="font-semibold text-foreground">{job.title}</h3>
                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${job.recruiter_status === "Active" ? "bg-emerald-50 text-emerald-600" : job.recruiter_status === "Deadline Passed" ? "bg-amber-50 text-amber-700" : "bg-muted text-muted-foreground"}`}>{job.recruiter_status || job.status}</span>
@@ -249,18 +296,23 @@ const Jobs = () => {
                 <input value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none" />
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-sm font-medium text-foreground mb-1.5 block">Department</label>
                 <select value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
                   <option>Engineering</option><option>Design</option><option>Product</option><option>Data</option>
                 </select>
               </div>
+              <div>
+                <label className="text-sm font-medium text-foreground mb-1.5 block">Status</label>
+                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as any })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
+                  <option>Active</option><option>Inactive</option>
+                </select>
+              </div>
             </div>
             <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Last Date to Apply</label>
               <input type="date" value={form.application_deadline} onChange={(e) => setForm({ ...form, application_deadline: e.target.value })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none" />
-              <p className="text-xs text-muted-foreground mt-1">Status will be Active until this date.</p>
             </div>
             <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Required Skills</label>

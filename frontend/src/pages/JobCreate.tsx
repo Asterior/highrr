@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Plus, X } from "lucide-react";
+import { ArrowLeft, FileUp, Plus, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { useStore } from "@/stores/useStore";
 import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
 import { Button } from "@/components/ui/button";
+import { extractJDFields } from "@/services/api";
 
 const formatDateInputValue = (value?: string | null) => {
   if (!value) return "";
@@ -22,6 +23,7 @@ const JobCreate = () => {
   const navigate = useNavigate();
   const { addJob, isLoading } = useStore();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isParsingJD, setIsParsingJD] = useState(false);
 
   const [form, setForm] = useState({
     title: "",
@@ -35,6 +37,7 @@ const JobCreate = () => {
     job_type: "full-time" as "full-time" | "intern" | "contract",
     required_skills: "",
     experience_required: "",
+    status: "Active" as "Active" | "Inactive",
     application_deadline: "",
   });
 
@@ -42,6 +45,35 @@ const JobCreate = () => {
 
   const addCustomField = () => setCustomFields([...customFields, { label: "", value: "" }]);
   const removeCustomField = (idx: number) => setCustomFields(customFields.filter((_, i) => i !== idx));
+
+  const handleJDUpload = async (file: File | null) => {
+    if (!file) return;
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    try {
+      setIsParsingJD(true);
+      const result = await extractJDFields(token, file);
+      const parsed = result?.parsed || {};
+
+      setForm((prev) => ({
+        ...prev,
+        title: parsed.title || prev.title,
+        description: parsed.description || prev.description,
+        responsibilities: parsed.responsibilities || prev.responsibilities,
+        experience_required: parsed.experience_required || prev.experience_required,
+        required_skills: Array.isArray(parsed.required_skills) && parsed.required_skills.length > 0
+          ? parsed.required_skills.join(", ")
+          : prev.required_skills,
+      }));
+
+      toast({ title: "JD parsed", description: "Job form auto-filled from uploaded JD." });
+    } catch (error: any) {
+      toast({ title: "JD parse failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsParsingJD(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,8 +96,8 @@ const JobCreate = () => {
         job_type: form.job_type,
         required_skills: form.required_skills.split(",").map((s) => s.trim()).filter(Boolean),
         experience_required: form.experience_required,
-        is_active: true,
-        status: "Active",
+        is_active: form.status === "Active",
+        status: form.status,
         application_deadline: toDeadlineIso(form.application_deadline),
       });
       toast({ title: "Job created!", description: `${form.title} has been posted.` });
@@ -90,7 +122,23 @@ const JobCreate = () => {
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
         {/* Basic Info */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-2xl border border-border p-6 shadow-card">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Basic Information</h2>
+          <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+            <h2 className="text-lg font-semibold text-foreground">Basic Information</h2>
+            <label className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted cursor-pointer">
+              <FileUp className="w-4 h-4" />
+              {isParsingJD ? "Parsing JD..." : "Upload JD for Autofill"}
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.txt"
+                className="hidden"
+                disabled={isParsingJD}
+                onChange={(e) => {
+                  handleJDUpload(e.target.files?.[0] || null);
+                  e.currentTarget.value = "";
+                }}
+              />
+            </label>
+          </div>
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Job Title *</label>
@@ -135,9 +183,10 @@ const JobCreate = () => {
           </div>
         </motion.div>
 
+        {/* Company Info */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-card rounded-2xl border border-border p-6 shadow-card">
           <h2 className="text-lg font-semibold text-foreground mb-4">Compensation, Type & Hiring Intent</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Salary Range *</label>
               <input value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} placeholder="e.g. ₹25-35 LPA" className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow" />
@@ -151,6 +200,13 @@ const JobCreate = () => {
               </select>
             </div>
             <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Status</label>
+              <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as any })} className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none border-0 text-foreground">
+                <option>Active</option>
+                <option>Inactive</option>
+              </select>
+            </div>
+            <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">Last Date to Apply *</label>
               <input
                 type="date"
@@ -158,7 +214,7 @@ const JobCreate = () => {
                 onChange={(e) => setForm({ ...form, application_deadline: e.target.value })}
                 className="w-full bg-muted rounded-xl px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring transition-shadow"
               />
-              <p className="text-xs text-muted-foreground mt-1">Status will be Active until this date.</p>
+              <p className="text-xs text-muted-foreground mt-1">Applications will be closed automatically after this date.</p>
             </div>
           </div>
 

@@ -26,10 +26,16 @@ class CompanyVerification(Base):
     business_registration_verified = Column(Boolean, default=False)
     business_registry_id = Column(String, nullable=True)
     business_country = Column(String, nullable=True)
+    domain_age_years = Column(Integer, default=0)
+    has_https = Column(Boolean, default=False)
+    contact_matches_submission = Column(Boolean, default=False)
 
     website_quality_score = Column(Integer, default=0)
     office_proof_verified = Column(Boolean, default=False)
     employee_presence_score = Column(Integer, default=0)
+    linkedin_company_url = Column(String, nullable=True)
+    employee_count = Column(Integer, default=0)
+    user_reports_penalty = Column(Integer, default=0)
 
     risk_notes = Column(Text, nullable=True)
     admin_notes = Column(Text, nullable=True)

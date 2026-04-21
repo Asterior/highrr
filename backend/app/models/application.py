@@ -12,7 +12,7 @@ class Application(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
-    candidate_profile_id = Column(Integer, ForeignKey("candidate_profiles.id"), nullable=True)
+    candidate_profile_id = Column(Integer, ForeignKey("candidate_profiles.id"), nullable=True, index=True)
 
     candidate_name = Column(String, nullable=False)
     candidate_email = Column(String, nullable=False)

@@ -1,181 +1,193 @@
+"""Application entrypoint and middleware wiring for the Highrr backend API."""
+
+import logging
 import os
+import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
-
-from app.core.security import hash_password
-from app.db.session import engine, get_db
-from app.db.base import Base
-from fastapi import Depends
+from fastapi.middleware.gzip import GZipMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.orm import Session
-from app.models import user
-from app.api.v1.endpoints import users
-from app.api.v1.endpoints import auth
-from app.models import job
-from app.api.v1.endpoints import jobs
-from app.models import application
+
 from app.api.v1.endpoints import applications
-from app.models import interview
-from app.models import conversation
-from app.models import message
-from app.models import candidate_profile
-from app.models import company_verification
-from app.models import recruiter_reputation
-from app.models import user_report
-from app.api.v1.endpoints import interviews
-from app.api.v1.endpoints import messages
 from app.api.v1.endpoints import analytics
+from app.api.v1.api import api_router
+from app.api.v1.endpoints import assistant
+from app.api.v1.endpoints import auth
 from app.api.v1.endpoints import candidate_profile as candidate_profile_routes
 from app.api.v1.endpoints import file_upload
+from app.api.v1.endpoints import interviews
+from app.api.v1.endpoints import jobs
+from app.api.v1.endpoints import messages
+from app.api.v1.endpoints import tests
 from app.api.v1.endpoints import trust
-from app.models.company_verification import CompanyVerification
-from app.models.user import User
+from app.api.v1.endpoints import users
+from app.core.ollama_client import OllamaClient
+from app.core.constants import ALERT_ENGINE_INTERVAL_HOURS
+from app.core.rate_limit import limiter
+from app.db.deps import get_db
+from app.db.session import check_db_connection
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app.api.v1.endpoints.websocket import router as ws_router
+LOGGER = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
-app = FastAPI()
+scheduler = AsyncIOScheduler()
 
-default_origins = [
-    "http://localhost:5173",
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
-]
+# Schema managed by Alembic. Run: alembic upgrade head
 
-cors_origins = [
-    origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", ",".join(default_origins)).split(",")
-    if origin.strip()
-]
 
+def _parse_cors_origins() -> list[str]:
+    """Parses comma-separated CORS origins from environment settings."""
+    environment = os.getenv("ENVIRONMENT", "development").strip().lower()
+    raw = (os.getenv("CORS_ORIGINS") or "").strip()
+
+    if environment == "production" and not raw:
+        raise RuntimeError("CORS_ORIGINS must be explicitly set in production")
+
+    if not raw:
+        if environment == "development":
+            return [
+                "http://localhost:8080",
+                "http://127.0.0.1:8080",
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+            ]
+        return ["http://localhost:5173"]
+
+    origins = [item.strip() for item in raw.split(",") if item.strip()]
+    if environment == "production" and "*" in origins:
+        raise RuntimeError("Wildcard CORS origin is not allowed in production")
+    return origins
+
+
+def _cors_origin_regex() -> str | None:
+    """Allows localhost and private-network origins during development."""
+    environment = os.getenv("ENVIRONMENT", "development").strip().lower()
+    if environment != "development":
+        return None
+
+    return r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$"
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Runs startup and shutdown checks for infrastructure readiness."""
+    environment = os.getenv("ENVIRONMENT", "development")
+    secret = os.getenv("SECRET_KEY", "")
+    ollama_base = os.getenv("OLLAMA_BASE_URL", "")
+    model_name = os.getenv("QWEN_MODEL", "")
+
+    if not check_db_connection():
+        raise RuntimeError("Database connection failed on startup")
+
+    ollama_reachable = False
+    try:
+        ollama_reachable = OllamaClient().health_check()
+    except RuntimeError:
+        ollama_reachable = False
+
+    if not ollama_reachable:
+        LOGGER.warning(
+            "Ollama is not reachable at %s. AI features will be degraded until Ollama is available.",
+            ollama_base,
+        )
+
+    LOGGER.info("✓ Environment: %s", environment)
+    LOGGER.info("✓ Database: connected")
+    if ollama_reachable:
+        LOGGER.info("✓ Ollama: reachable at %s", ollama_base)
+    else:
+        LOGGER.warning("✗ Ollama unreachable at %s", ollama_base)
+    LOGGER.info("✓ Model: %s", model_name)
+    if len(secret) < 32:
+        LOGGER.warning("✗ WARNING if SECRET_KEY looks weak (under 32 chars)")
+
+    from app.db.session import SessionLocal
+    from app.services.forum_service import seed_default_categories
+    from app.services.alert_engine import run_scheduled_alert_scan
+
+    if environment.strip().lower() == "development":
+        db = SessionLocal()
+        try:
+            seed_default_categories(db)
+            LOGGER.info("Forum categories seeded for development.")
+        finally:
+            db.close()
+
+    def _run_alert_scan() -> None:
+        db = SessionLocal()
+        try:
+            created = run_scheduled_alert_scan(db)
+            LOGGER.info("Alert engine run created %s notifications", created)
+        finally:
+            db.close()
+
+    scheduler.add_job(
+        _run_alert_scan,
+        trigger="interval",
+        hours=ALERT_ENGINE_INTERVAL_HOURS,
+        id="alert_scan",
+        replace_existing=True,
+    )
+    scheduler.start()
+    LOGGER.info("Alert engine scheduler started. Runs every %s hours.", ALERT_ENGINE_INTERVAL_HOURS)
+
+    yield
+
+    scheduler.shutdown(wait=False)
+    LOGGER.info("Alert engine scheduler stopped.")
+
+
+app = FastAPI(lifespan=lifespan)
+app.state.limiter = limiter
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    """Returns consistent payload when the API rate limit is exceeded."""
+    _ = (request, exc)
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please wait before trying again."},
+    )
+app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+cors_origins = _parse_cors_origins()
+cors_origin_regex = _cors_origin_regex()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?$",
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-def _apply_schema_compatibility_patches() -> None:
-    dialect = engine.dialect.name
-    with engine.begin() as conn:
-        Base.metadata.tables["company_verifications"].create(bind=conn, checkfirst=True)
-        Base.metadata.tables["recruiter_reputations"].create(bind=conn, checkfirst=True)
-        Base.metadata.tables["user_reports"].create(bind=conn, checkfirst=True)
-
-        conn.execute(text("ALTER TABLE company_verifications ADD COLUMN IF NOT EXISTS admin_notes TEXT"))
-        conn.execute(text("ALTER TABLE company_verifications ADD COLUMN IF NOT EXISTS pending_payload TEXT"))
-        conn.execute(text("ALTER TABLE company_verifications ADD COLUMN IF NOT EXISTS review_status VARCHAR DEFAULT 'draft'"))
-        conn.execute(text("ALTER TABLE company_verifications ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE"))
-        conn.execute(text("ALTER TABLE company_verifications ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMP"))
-        conn.execute(text("ALTER TABLE company_verifications ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP"))
-
-        conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS responsibilities TEXT"))
-        conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hiring_timeline VARCHAR"))
-        conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS actively_hiring BOOLEAN DEFAULT TRUE"))
-        conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS intent_confirmed_at TIMESTAMP"))
-        conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS application_deadline TIMESTAMP"))
-        conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS posted_expires_at TIMESTAMP"))
-        conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS renewed_count INTEGER DEFAULT 0"))
-        conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS recruiter_response_rate INTEGER DEFAULT 100"))
-        conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT FALSE"))
-
-        if dialect == "postgresql":
-            conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS fraud_flags JSONB DEFAULT '[]'::jsonb"))
-        else:
-            conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS fraud_flags JSON"))
-
-        application_columns = [
-            ("candidate_profile_id", "INTEGER"),
-            ("candidate_location", "TEXT"),
-            ("current_role", "TEXT"),
-            ("current_company", "TEXT"),
-            ("highest_qualification", "TEXT"),
-            ("profile_completion_percentage", "INTEGER"),
-        ]
-
-        for column_name, column_type in application_columns:
-            existing = conn.execute(
-                text(
-                    "SELECT 1 FROM information_schema.columns "
-                    "WHERE table_name = 'applications' AND column_name = :column"
-                ),
-                {"column": column_name},
-            ).first()
-            if not existing:
-                conn.execute(text(f"ALTER TABLE applications ADD COLUMN {column_name} {column_type}"))
-
-
-def _ensure_demo_recruiter() -> None:
-    from app.db.session import SessionLocal
-
-    db = SessionLocal()
+@app.middleware("http")
+async def attach_user_and_request_logs(request: Request, call_next):
+    """Attaches auth user when available and logs request metadata and latency."""
+    start = time.perf_counter()
+    status_code = 500
     try:
-        existing = db.query(User).filter(User.email == "fresh.recruiter@demohr.com").first()
-        if not existing:
-            db.add(
-                User(
-                    name="Fresh Recruiter",
-                    email="fresh.recruiter@demohr.com",
-                    password=hash_password("FreshRecruiter123"),
-                    role="recruiter",
-                )
-            )
-            db.commit()
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
     finally:
-        db.close()
-
-
-def _ensure_recruiter_trust_override(email: str, score: int = 90) -> None:
-    from app.db.session import SessionLocal
-
-    db = SessionLocal()
-    try:
-        recruiter = db.query(User).filter(User.email == email, User.role == "recruiter").first()
-        if not recruiter:
-            return
-
-        verification = (
-            db.query(CompanyVerification)
-            .filter(CompanyVerification.recruiter_id == recruiter.id)
-            .first()
-        )
-
-        if not verification:
-            verification = CompanyVerification(
-                recruiter_id=recruiter.id,
-                company_name="Verified Recruiter",
-                company_email=email,
-                verification_level="verified",
-                trust_score=score,
-                domain_verified=True,
-                domain_otp_verified=True,
-                office_proof_verified=True,
-                last_assessed_at=datetime.utcnow(),
-            )
-            db.add(verification)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        timestamp = datetime.utcnow().isoformat()
+        message = f"[{timestamp}] {request.method} {request.url.path} -> {status_code} ({elapsed_ms:.2f}ms)"
+        if status_code >= 500:
+            LOGGER.error(message)
+        elif status_code >= 400:
+            LOGGER.warning(message)
         else:
-            verification.verification_level = "verified"
-            verification.trust_score = max(score, verification.trust_score or 0)
-            verification.domain_verified = True
-            verification.domain_otp_verified = True
-            verification.office_proof_verified = True
-            verification.last_assessed_at = datetime.utcnow()
-
-        db.commit()
-    finally:
-        db.close()
-
-
-@app.on_event("startup")
-def startup_create_tables() -> None:
-    Base.metadata.create_all(bind=engine)
-    _apply_schema_compatibility_patches()
-    _ensure_demo_recruiter()
-    _ensure_recruiter_trust_override("ananya@gmail.com", score=92)
+            LOGGER.info(message)
 
 
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
@@ -188,12 +200,21 @@ app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 app.include_router(candidate_profile_routes.router)
 app.include_router(file_upload.router)
 app.include_router(trust.router, prefix="/trust", tags=["Trust"])
-app.include_router(ws_router)
+app.include_router(tests.router)
+app.include_router(assistant.router)
+app.include_router(api_router)
+
 
 @app.get("/")
 def root():
-    return {"message": "Highrr Employer Backend Running 🚀"}
+    """Returns service status root response."""
+    return {"message": "Highrr Employer Backend Running"}
+
 
 @app.get("/test-db")
 def test_db(db: Session = Depends(get_db)):
+    """Returns DB connectivity status for local development only."""
+    if os.getenv("ENVIRONMENT", "development") != "development":
+        return {"detail": "Not available"}
+    _ = db
     return {"msg": "DB connected"}

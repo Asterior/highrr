@@ -45,6 +45,11 @@ interface StoredResume {
   is_primary?: boolean;
 }
 
+interface JobOption {
+  id: string;
+  title: string;
+}
+
 const ATSScore = () => {
   const { jobs, loadJobs } = useStore();
   const [loading, setLoading] = useState(true);
@@ -52,7 +57,20 @@ const ATSScore = () => {
   const [analysisRunning, setAnalysisRunning] = useState(false);
   const [resumesLoading, setResumesLoading] = useState(true);
   const [atsData, setAtsData] = useState<ATSResponse | null>(null);
-  const [scanResult, setScanResult] = useState<{ resume_id: number; ats_score: number; is_ats_optimized: boolean } | null>(null);
+  const [scanResult, setScanResult] = useState<{
+    resume_id: number;
+    ats_score: number;
+    is_ats_optimized: boolean;
+    ats_feedback?: {
+      resume_analysis?: {
+        skills_detected?: string[];
+        experience_years_detected?: number;
+      };
+      top_recommendations?: string[];
+      results?: ATSResult[];
+    };
+    target_job_result?: ATSResult | null;
+  } | null>(null);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [selectedResumeId, setSelectedResumeId] = useState<string>("");
   const [jobId, setJobId] = useState<string>("");
@@ -143,6 +161,11 @@ const ATSScore = () => {
     const token = localStorage.getItem("token");
     if (!token) return;
 
+    if (!jobId) {
+      toast({ title: "Choose a job role", description: "Select a specific job before running the live ATS scan.", variant: "destructive" });
+      return;
+    }
+
     let resumeId = selectedResumeId;
     if (!resumeId && resumeFile) {
       try {
@@ -179,6 +202,17 @@ const ATSScore = () => {
 
   const jobScores = useMemo(() => atsData?.results || [], [atsData]);
   const avgScore = atsData?.average_score || 0;
+  const jobOptions = useMemo<JobOption[]>(() => {
+    const fromStore = jobs.map((job) => ({ id: String(job.id), title: job.title }));
+    const fromAts = (atsData?.results || []).map((result) => ({ id: String(result.job_id), title: result.job_title }));
+    const merged = [...fromStore, ...fromAts];
+    const seen = new Set<string>();
+    return merged.filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }, [jobs, atsData]);
 
   if (loading) {
     return (
@@ -195,9 +229,6 @@ const ATSScore = () => {
           <h1 className="text-3xl font-bold text-foreground">ATS Score</h1>
           <p className="text-muted-foreground mt-1">Upload a resume, pick a job role, and run the live API scan.</p>
         </div>
-        <Link to="/candidate/resume" className="rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground shadow-card hover-lift">
-          Open Resume Builder
-        </Link>
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
@@ -217,9 +248,9 @@ const ATSScore = () => {
                   <option key={resume.id} value={resume.id}>{resume.title}{resume.is_primary ? " · primary" : ""}{resume.ats_score ? ` · ${Math.round(resume.ats_score)}%` : ""}</option>
                 ))}
               </select>
-              <select value={jobId} onChange={(e) => setJobId(e.target.value)} disabled={summaryLoading} className="rounded-xl bg-muted px-4 py-2.5 text-sm outline-none border-0 text-foreground disabled:opacity-60">
-                <option value="">All active jobs</option>
-                {jobs.map((job) => (
+              <select value={jobId} onChange={(e) => setJobId(e.target.value)} className="rounded-xl bg-muted px-4 py-2.5 text-sm outline-none border-0 text-foreground">
+                <option value="">Select target job role</option>
+                {jobOptions.map((job) => (
                   <option key={job.id} value={job.id}>{job.title} (#{job.id})</option>
                 ))}
               </select>
@@ -264,6 +295,19 @@ const ATSScore = () => {
           <div className="mt-5 rounded-2xl bg-violet-50/60 p-4 text-sm text-violet-900">
             {scanResult ? `Resume ${scanResult.resume_id} scored ${Math.round(scanResult.ats_score)} in the live ATS refresh.` : "Upload a resume and run the live scan to populate this card."}
           </div>
+          {scanResult?.ats_feedback?.resume_analysis && (
+            <div className="mt-4 rounded-2xl border border-border bg-card p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI resume reading summary</p>
+              <p className="mt-2 text-sm text-foreground">
+                Detected experience: {scanResult.ats_feedback.resume_analysis.experience_years_detected ?? 0} years
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {(scanResult.ats_feedback.resume_analysis.skills_detected || []).slice(0, 14).map((skill) => (
+                  <span key={skill} className="rounded-lg bg-violet-50 px-2 py-0.5 text-xs text-violet-700">{skill}</span>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
             <TrendingUp className="w-3.5 h-3.5" />
             Summary score uses the live ATS analytics endpoint for the selected role context.

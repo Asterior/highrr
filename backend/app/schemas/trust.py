@@ -77,6 +77,15 @@ class VerificationQueueItemResponse(BaseModel):
     company_domain: str | None
     company_email: EmailStr | None
     website_url: str | None
+    business_registry_id: str | None = None
+    business_country: str | None = None
+    domain_age_years: int = 0
+    has_https: bool = False
+    contact_matches_submission: bool = False
+    office_proof_verified: bool = False
+    linkedin_company_url: str | None = None
+    employee_count: int = 0
+    user_reports_penalty: int = 0
     verification_level: str
     trust_score: int
     reports_count: int
@@ -101,6 +110,14 @@ class AdminVerificationReviewRequest(BaseModel):
     verification_level: str | None = None
     trust_score: int | None = Field(default=None, ge=0, le=100)
     admin_notes: str | None = None
+
+
+class VerifyEmployerRequest(BaseModel):
+    recruiter_id: int
+    gst_number: str
+    company_email: str
+    company_website: str
+    linkedin_url: str
 
 
 class ReportCreate(BaseModel):

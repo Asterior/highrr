@@ -1,18 +1,20 @@
-#backend/app/api/v1/endpoints/trust.py
 from datetime import datetime, timedelta
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_admin, get_current_user
+from app.core.errors import not_found
 from app.db.deps import get_db
 from app.models.application import Application
 from app.models.company_verification import CompanyVerification
+from app.models.employer_verification import EmployerVerification
 from app.models.job import Job
 from app.models.recruiter_reputation import RecruiterReputation
 from app.models.user import User
 from app.models.user_report import UserReport
+from app.services.employer_verification import run_verification
 from app.schemas.trust import (
     AdminVerificationReviewRequest,
     CompanyAssessmentRequest,
@@ -22,6 +24,7 @@ from app.schemas.trust import (
     RecruiterTrustStatusResponse,
     ReportCreate,
     ReportResponse,
+    VerifyEmployerRequest,
     VerificationQueueItemResponse,
 )
 
@@ -83,6 +86,27 @@ def _parse_pending_payload(raw_payload: str | None) -> CompanyAssessmentRequest 
         return CompanyAssessmentRequest(**json.loads(raw_payload))
     except Exception:
         return None
+
+
+def _auto_verify_from_profile(
+    db: Session,
+    recruiter_id: int,
+    business_registry_id: str | None,
+    company_email: str | None,
+    website_url: str | None,
+    company_domain: str | None,
+    linkedin_company_url: str | None,
+) -> None:
+    """Runs automated recruiter checks from profile fields for candidate-visible badges."""
+    website = (website_url or company_domain or "").strip()
+    run_verification(
+        recruiter_id=recruiter_id,
+        gst=(business_registry_id or "").strip(),
+        company_email=(company_email or "").strip(),
+        company_website=website,
+        linkedin_url=(linkedin_company_url or "").strip(),
+        db=db,
+    )
 
 
 def _upsert_reputation(db: Session, recruiter_id: int) -> RecruiterReputation:
@@ -193,7 +217,7 @@ def get_my_verification_profile(
         )
 
     pending = _parse_pending_payload(company.pending_payload)
-    source = pending if pending and company.review_status == "pending_review" else None
+    source = pending if pending and company.review_status in {"pending_review", "rejected"} else None
 
     return RecruiterVerificationProfileResponse(
         recruiter_id=current_user.id,
@@ -203,13 +227,13 @@ def get_my_verification_profile(
         website_url=(source.website_url if source else company.website_url),
         business_registry_id=(source.business_registry_id if source else company.business_registry_id),
         business_country=(source.business_country if source else company.business_country),
-        domain_age_years=(source.domain_age_years if source else 0),
-        has_https=(source.has_https if source else False),
-        contact_matches_submission=(source.contact_matches_submission if source else False),
+        domain_age_years=(source.domain_age_years if source else (company.domain_age_years or 0)),
+        has_https=(source.has_https if source else bool(company.has_https)),
+        contact_matches_submission=(source.contact_matches_submission if source else bool(company.contact_matches_submission)),
         office_proof_verified=(source.office_proof_verified if source else company.office_proof_verified),
-        linkedin_company_url=(source.linkedin_company_url if source else None),
-        employee_count=(source.employee_count if source else 0),
-        user_reports_penalty=(source.user_reports_penalty if source else 0),
+        linkedin_company_url=(source.linkedin_company_url if source else company.linkedin_company_url),
+        employee_count=(source.employee_count if source else (company.employee_count or 0)),
+        user_reports_penalty=(source.user_reports_penalty if source else (company.user_reports_penalty or 0)),
         verification_level=company.verification_level or "basic",
         trust_score=company.trust_score or 0,
         can_post_jobs=(company.verification_level in {"verified", "trusted"}),
@@ -243,11 +267,27 @@ def assess_company(
     company.is_locked = True
     company.submitted_at = datetime.utcnow()
     company.admin_notes = None
+    company.domain_age_years = payload.domain_age_years
+    company.has_https = payload.has_https
+    company.contact_matches_submission = payload.contact_matches_submission
+    company.linkedin_company_url = payload.linkedin_company_url
+    company.employee_count = payload.employee_count
+    company.user_reports_penalty = payload.user_reports_penalty
 
     reputation = _upsert_reputation(db, current_user.id)
     db.commit()
     db.refresh(company)
     db.refresh(reputation)
+
+    _auto_verify_from_profile(
+        db=db,
+        recruiter_id=current_user.id,
+        business_registry_id=payload.business_registry_id,
+        company_email=payload.company_email,
+        website_url=payload.website_url,
+        company_domain=payload.company_domain,
+        linkedin_company_url=payload.linkedin_company_url,
+    )
 
     score, _domain, domain_verified, website_quality, employee_score = _assessment_from_payload(payload)
     level = _level_from_score(score)
@@ -343,6 +383,8 @@ def get_verification_queue(
 
     queue: list[VerificationQueueItemResponse] = []
     for company, recruiter in companies:
+        pending = _parse_pending_payload(company.pending_payload)
+        source = pending if pending and company.review_status in {"pending_review", "rejected"} else None
         reputation = db.query(RecruiterReputation).filter(RecruiterReputation.recruiter_id == recruiter.id).first()
         report_counts = db.query(UserReport.category, UserReport.id).filter(UserReport.recruiter_id == recruiter.id).all()
         reports_count = len(report_counts)
@@ -355,10 +397,19 @@ def get_verification_queue(
                 recruiter_id=recruiter.id,
                 recruiter_name=recruiter.name,
                 recruiter_email=recruiter.email,
-                company_name=company.company_name,
-                company_domain=company.company_domain,
-                company_email=company.company_email,
-                website_url=company.website_url,
+                company_name=(source.company_name if source else company.company_name),
+                company_domain=(source.company_domain if source else company.company_domain),
+                company_email=(source.company_email if source else company.company_email),
+                website_url=(source.website_url if source else company.website_url),
+                business_registry_id=(source.business_registry_id if source else company.business_registry_id),
+                business_country=(source.business_country if source else company.business_country),
+                domain_age_years=(source.domain_age_years if source else (company.domain_age_years or 0)),
+                has_https=(source.has_https if source else bool(company.has_https)),
+                contact_matches_submission=(source.contact_matches_submission if source else bool(company.contact_matches_submission)),
+                office_proof_verified=(source.office_proof_verified if source else bool(company.office_proof_verified)),
+                linkedin_company_url=(source.linkedin_company_url if source else company.linkedin_company_url),
+                employee_count=(source.employee_count if source else (company.employee_count or 0)),
+                user_reports_penalty=(source.user_reports_penalty if source else (company.user_reports_penalty or 0)),
                 verification_level=company.verification_level,
                 trust_score=company.trust_score,
                 reports_count=reports_count,
@@ -368,7 +419,6 @@ def get_verification_queue(
                 response_rate=(reputation.response_rate if reputation else 100.0),
                 hiring_success_rate=(reputation.hiring_success_rate if reputation else 0.0),
                 business_registration_verified=bool(company.business_registration_verified),
-                business_country=company.business_country,
                 admin_notes=company.admin_notes,
                 last_assessed_at=company.last_assessed_at,
                 submitted_at=company.submitted_at,
@@ -380,6 +430,48 @@ def get_verification_queue(
         )
 
     return queue
+
+
+@router.get("/admin/verification-profile/{recruiter_id}", response_model=RecruiterVerificationProfileResponse)
+def get_admin_verification_profile(
+    recruiter_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    company = db.query(CompanyVerification).filter(CompanyVerification.recruiter_id == recruiter_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Verification profile not found")
+
+    pending = _parse_pending_payload(company.pending_payload)
+    source = pending if pending and company.review_status in {"pending_review", "rejected"} else None
+
+    return RecruiterVerificationProfileResponse(
+        recruiter_id=recruiter_id,
+        company_name=(source.company_name if source else company.company_name) or "",
+        company_email=(source.company_email if source else company.company_email),
+        company_domain=(source.company_domain if source else company.company_domain),
+        website_url=(source.website_url if source else company.website_url),
+        business_registry_id=(source.business_registry_id if source else company.business_registry_id),
+        business_country=(source.business_country if source else company.business_country),
+        domain_age_years=(source.domain_age_years if source else (company.domain_age_years or 0)),
+        has_https=(source.has_https if source else bool(company.has_https)),
+        contact_matches_submission=(source.contact_matches_submission if source else bool(company.contact_matches_submission)),
+        office_proof_verified=(source.office_proof_verified if source else bool(company.office_proof_verified)),
+        linkedin_company_url=(source.linkedin_company_url if source else company.linkedin_company_url),
+        employee_count=(source.employee_count if source else (company.employee_count or 0)),
+        user_reports_penalty=(source.user_reports_penalty if source else (company.user_reports_penalty or 0)),
+        verification_level=company.verification_level or "basic",
+        trust_score=company.trust_score or 0,
+        can_post_jobs=(company.verification_level in {"verified", "trusted"}),
+        review_status=company.review_status or "draft",
+        is_locked=bool(company.is_locked),
+        admin_notes=company.admin_notes,
+        submitted_at=company.submitted_at,
+        reviewed_at=company.reviewed_at,
+    )
 
 
 @router.post("/admin/verification-queue/{recruiter_id}/review", response_model=VerificationQueueItemResponse)
@@ -414,9 +506,15 @@ def review_company_submission(
             company.business_registration_verified = bool(pending.business_registry_id)
             company.business_registry_id = pending.business_registry_id
             company.business_country = pending.business_country
+            company.domain_age_years = pending.domain_age_years
+            company.has_https = pending.has_https
+            company.contact_matches_submission = pending.contact_matches_submission
             company.website_quality_score = website_quality
             company.office_proof_verified = pending.office_proof_verified
             company.employee_presence_score = employee_score
+            company.linkedin_company_url = pending.linkedin_company_url
+            company.employee_count = pending.employee_count
+            company.user_reports_penalty = pending.user_reports_penalty
 
             company.trust_score = payload.trust_score if payload.trust_score is not None else score
             if payload.verification_level:
@@ -445,6 +543,16 @@ def review_company_submission(
     db.commit()
     db.refresh(company)
 
+    _auto_verify_from_profile(
+        db=db,
+        recruiter_id=recruiter.id,
+        business_registry_id=company.business_registry_id,
+        company_email=company.company_email,
+        website_url=company.website_url,
+        company_domain=company.company_domain,
+        linkedin_company_url=company.linkedin_company_url,
+    )
+
     reputation = db.query(RecruiterReputation).filter(RecruiterReputation.recruiter_id == recruiter.id).first()
     report_counts = db.query(UserReport.category, UserReport.id).filter(UserReport.recruiter_id == recruiter.id).all()
     reports_count = len(report_counts)
@@ -469,7 +577,6 @@ def review_company_submission(
         response_rate=(reputation.response_rate if reputation else 100.0),
         hiring_success_rate=(reputation.hiring_success_rate if reputation else 0.0),
         business_registration_verified=bool(company.business_registration_verified),
-        business_country=company.business_country,
         admin_notes=company.admin_notes,
         last_assessed_at=company.last_assessed_at,
         submitted_at=company.submitted_at,
@@ -478,6 +585,86 @@ def review_company_submission(
         updated_at=company.updated_at,
         review_status=company.review_status or "draft",
     )
+
+
+@router.post("/verify-employer")
+def verify_employer(
+    body: VerifyEmployerRequest,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_admin),
+):
+    """Runs admin-triggered automated employer verification checks."""
+    recruiter = db.query(User).filter(User.id == body.recruiter_id).first()
+    if not recruiter:
+        not_found("Recruiter")
+
+    return run_verification(
+        recruiter_id=body.recruiter_id,
+        gst=body.gst_number,
+        company_email=body.company_email,
+        company_website=body.company_website,
+        linkedin_url=body.linkedin_url,
+        db=db,
+    )
+
+
+@router.get("/employer-badge/{recruiter_id}")
+def get_employer_badge(
+    recruiter_id: int,
+    db: Session = Depends(get_db),
+):
+    """Returns public recruiter employer verification badge data."""
+    recruiter = db.query(User).filter(User.id == recruiter_id).first()
+    if not recruiter:
+        not_found("Recruiter")
+
+    verification = (
+        db.query(EmployerVerification)
+        .filter(EmployerVerification.recruiter_id == recruiter_id)
+        .first()
+    )
+
+    company = db.query(CompanyVerification).filter(CompanyVerification.recruiter_id == recruiter_id).first()
+    should_refresh = False
+    if company and not verification:
+        should_refresh = True
+    elif company and verification and company.updated_at and verification.updated_at and company.updated_at > verification.updated_at:
+        should_refresh = True
+
+    if should_refresh:
+        _auto_verify_from_profile(
+            db=db,
+            recruiter_id=recruiter_id,
+            business_registry_id=company.business_registry_id if company else None,
+            company_email=company.company_email if company else None,
+            website_url=company.website_url if company else None,
+            company_domain=company.company_domain if company else None,
+            linkedin_company_url=company.linkedin_company_url if company else None,
+        )
+        verification = (
+            db.query(EmployerVerification)
+            .filter(EmployerVerification.recruiter_id == recruiter_id)
+            .first()
+        )
+
+    if not verification:
+        return {
+            "recruiter_id": recruiter_id,
+            "badge_level": "unverified",
+            "gst_verified": False,
+            "domain_verified": False,
+            "linkedin_verified": False,
+            "verified_at": None,
+        }
+
+    return {
+        "recruiter_id": recruiter_id,
+        "badge_level": verification.badge_level,
+        "gst_verified": verification.gst_verified,
+        "domain_verified": verification.domain_verified,
+        "linkedin_verified": verification.linkedin_verified,
+        "verified_at": verification.verified_at,
+    }
 
 
 @router.post("/report", response_model=ReportResponse)
