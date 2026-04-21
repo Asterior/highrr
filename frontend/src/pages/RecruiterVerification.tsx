@@ -165,10 +165,10 @@ const RecruiterVerification = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-violet-50/40 to-cyan-50/30 p-6 md:p-10">
       <div className="max-w-5xl mx-auto mb-4 flex items-center justify-between">
         <Link
-          to={isApproved ? "/" : "/login"}
+          to="/login"
           className="inline-flex items-center rounded-xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground shadow-sm hover:bg-muted transition-colors"
         >
-          {isApproved ? "← Go to Home" : "← Back to Login"}
+          ← Back to Login
         </Link>
       </div>
       {status?.is_locked && (

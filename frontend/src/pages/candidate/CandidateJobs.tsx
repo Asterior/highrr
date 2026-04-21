@@ -1,37 +1,66 @@
 import { useState, useEffect } from "react";
 import { Search, MapPin, Briefcase, Clock } from "lucide-react";
 import { motion } from "framer-motion";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useStore } from "@/stores/useStore";
 import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import VerificationBadge from "@/components/VerificationBadge";
-import { EmployerBadgeResponse, getEmployerBadge, getJobMatchScore, JobMatchScore } from "@/services/api";
 
-interface ScoreMap {
-  [jobId: string]: JobMatchScore | null;
+interface ChatMessage {
+  id: string;
+  text: string;
+  isBot: boolean;
 }
 
-const ringColor = (score: number): string => {
-  if (score >= 80) return "#16a34a";
-  if (score >= 60) return "#d97706";
-  return "#dc2626";
+const applicationQuestions = [
+  { key: "phone", prompt: "Please share your mobile number for the recruiter." },
+  { key: "experience_years", prompt: "How many years of professional experience do you have?" },
+  { key: "cgpa", prompt: "Please share your CGPA or final grade (optional)." },
+  { key: "skills", prompt: "List your top skills for this role, separated by commas." },
+  { key: "notes", prompt: "Any extra note you’d like the recruiter to see? (optional)" },
+] as const;
+
+type ApplicationQuestionKey = (typeof applicationQuestions)[number]["key"];
+
+const parseChatAnswer = (key: ApplicationQuestionKey, answer: string) => {
+  const trimmed = answer.trim();
+  if (key === "experience_years") {
+    const value = Number(trimmed);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+  if (key === "cgpa") {
+    if (!trimmed) return undefined;
+    const value = Number(trimmed);
+    return Number.isFinite(value) ? value : null;
+  }
+  if (key === "skills") {
+    return trimmed ? trimmed.split(",").map((item) => item.trim()).filter(Boolean) : [];
+  }
+  return trimmed || undefined;
 };
 
 const CandidateJobs = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const { jobs, applyToJob, loadJobs, isLoading } = useStore();
   const [search, setSearch] = useState("");
   const [deptFilter, setDeptFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("All");
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [confirmApply, setConfirmApply] = useState<string | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatStep, setChatStep] = useState(0);
+  const [applicationData, setApplicationData] = useState<{
+    phone?: string;
+    experience_years?: number;
+    cgpa?: number;
+    skills?: string[];
+    notes?: string;
+  }>({});
   const [loadingMessage, setLoadingMessage] = useState("");
-  const [matchScores, setMatchScores] = useState<ScoreMap>({});
-  const [badgesByRecruiter, setBadgesByRecruiter] = useState<Record<number, EmployerBadgeResponse>>({});
 
   // Load jobs from API on component mount
   useEffect(() => {
@@ -49,20 +78,6 @@ const CandidateJobs = () => {
     loadJobsData();
   }, [loadJobs]);
 
-  useEffect(() => {
-    const jobId = searchParams.get("job");
-    if (!jobId) return;
-
-    const shouldApply = searchParams.get("apply") === "1";
-    if (shouldApply) {
-      setConfirmApply(jobId);
-      setSelectedJob(null);
-      return;
-    }
-
-    setSelectedJob(jobId);
-  }, [searchParams]);
-
   const visibleJobs = jobs;
   const departments = ["All", ...new Set(visibleJobs.map((j) => j.department))];
 
@@ -73,73 +88,64 @@ const CandidateJobs = () => {
     return matchSearch && matchDept && matchType;
   });
 
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token || filtered.length === 0) return;
+  const startApplyChat = (jobId: string) => {
+    setConfirmApply(jobId);
+    setChatStep(0);
+    setApplicationData({});
+    setChatMessages([
+      { id: "bot-1", text: "This role requires a few additional details from you before applying.", isBot: true },
+      { id: "bot-2", text: applicationQuestions[0].prompt, isBot: true },
+    ]);
+    setChatInput("");
+    setIsChatOpen(true);
+  };
 
-    let cancelled = false;
+  const appendChatMessages = (...messages: ChatMessage[]) => {
+    setChatMessages((prev) => [...prev, ...messages]);
+  };
 
-    const loadScores = async () => {
-      const updates: ScoreMap = {};
-      await Promise.all(
-        filtered.map(async (job) => {
-          try {
-            const score = await getJobMatchScore(job.id, token);
-            updates[job.id] = score;
-          } catch {
-            updates[job.id] = null;
-          }
-        })
-      );
-      if (!cancelled) {
-        setMatchScores((prev) => ({ ...prev, ...updates }));
-      }
-    };
+  const handleChatSubmit = async () => {
+    if (!confirmApply || !chatInput.trim()) return;
 
-    loadScores().catch(() => {
-      // Non-blocking: meter gracefully degrades per card.
-    });
+    const userText = chatInput.trim();
+    const currentQuestion = applicationQuestions[chatStep];
+    const parsedValue = parseChatAnswer(currentQuestion.key, userText);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [jobs, search, deptFilter, typeFilter]);
+    appendChatMessages({ id: `user-${Date.now()}`, text: userText, isBot: false });
+    setChatInput("");
 
-  useEffect(() => {
-    const recruiterIds = Array.from(new Set(filtered.map((job) => Number(job.created_by)).filter(Boolean)));
-    const missingIds = recruiterIds.filter((id) => !(id in badgesByRecruiter));
-    if (missingIds.length === 0) return;
+    if (parsedValue === null && currentQuestion.key !== "notes") {
+      appendChatMessages({
+        id: `bot-retry-${Date.now()}`,
+        text: currentQuestion.key === "experience_years"
+          ? "Please enter a valid number of years of experience."
+          : "Please provide a valid response.",
+        isBot: true,
+      });
+      return;
+    }
 
-    let cancelled = false;
-    const loadBadges = async () => {
-      const updates: Record<number, EmployerBadgeResponse> = {};
-      await Promise.all(
-        missingIds.map(async (recruiterId) => {
-          try {
-            updates[recruiterId] = await getEmployerBadge(recruiterId);
-          } catch {
-            // Badge is optional and should fail silently.
-          }
-        })
-      );
-      if (!cancelled && Object.keys(updates).length > 0) {
-        setBadgesByRecruiter((prev) => ({ ...prev, ...updates }));
-      }
-    };
+    setApplicationData((prev) => ({
+      ...prev,
+      [currentQuestion.key]: parsedValue,
+    }));
 
-    loadBadges().catch(() => {
-      // Badge is optional and should fail silently.
-    });
+    const nextStep = chatStep + 1;
+    if (nextStep >= applicationQuestions.length) {
+      appendChatMessages({ id: `bot-end-${Date.now()}`, text: "Thanks! Submitting your application now.", isBot: true });
+      setChatStep(nextStep);
+      await submitApplicationFromChat();
+      return;
+    }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [filtered, badgesByRecruiter]);
+    appendChatMessages({ id: `bot-${Date.now()}`, text: applicationQuestions[nextStep].prompt, isBot: true });
+    setChatStep(nextStep);
+  };
 
-  const handleApply = async () => {
+  const submitApplicationFromChat = async () => {
     if (!confirmApply) return;
     try {
-      const success = await applyToJob(confirmApply);
+      const success = await applyToJob(confirmApply, applicationData);
       if (success) {
         toast({ title: "Application submitted!", description: "Your application has been sent successfully." });
       } else {
@@ -150,6 +156,10 @@ const CandidateJobs = () => {
       toast({ title: "Error", description: "Failed to submit application", variant: "destructive" });
     } finally {
       setConfirmApply(null);
+      setIsChatOpen(false);
+      setChatStep(0);
+      setApplicationData({});
+      setChatMessages([]);
     }
   };
 
@@ -192,29 +202,10 @@ const CandidateJobs = () => {
       <div className="grid gap-4 mt-8">
         {filtered.map((job, i) => {
           const applied = Boolean(job.has_applied);
-          const score = matchScores[job.id];
-          const total = score?.total_score ?? 0;
-          const radius = 22;
-          const circumference = 2 * Math.PI * radius;
-          const offset = circumference - (Math.max(0, Math.min(total, 100)) / 100) * circumference;
-
           return (
             <motion.div key={job.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="bg-card rounded-2xl border border-border p-6 shadow-card hover-lift">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  {badgesByRecruiter[Number(job.created_by)] && (
-                    <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>Company {job.created_by}</span>
-                      <VerificationBadge
-                        badgeLevel={badgesByRecruiter[Number(job.created_by)].badge_level}
-                        checks={{
-                          gst: badgesByRecruiter[Number(job.created_by)].gst_verified,
-                          domain: badgesByRecruiter[Number(job.created_by)].domain_verified,
-                          linkedin: badgesByRecruiter[Number(job.created_by)].linkedin_verified,
-                        }}
-                      />
-                    </div>
-                  )}
                   <div className="flex items-center gap-3">
                     <h3 className="font-semibold text-foreground">{job.title}</h3>
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-secondary text-accent-foreground">{job.job_type}</span>
@@ -232,56 +223,6 @@ const CandidateJobs = () => {
                     {job.required_skills.map((s) => <span key={s} className="px-2.5 py-1 bg-muted rounded-lg text-xs text-muted-foreground font-medium">{s}</span>)}
                   </div>
                 </div>
-                <div className="ml-6 mr-2 min-w-[140px]">
-                  {score ? (
-                    <div className="rounded-xl border border-border bg-muted/40 p-3">
-                      <div className="relative flex items-center justify-center">
-                        <svg width="56" height="56" viewBox="0 0 56 56" className="-rotate-90">
-                          <circle cx="28" cy="28" r={radius} stroke="#e5e7eb" strokeWidth="6" fill="none" />
-                          <circle
-                            cx="28"
-                            cy="28"
-                            r={radius}
-                            stroke={ringColor(total)}
-                            strokeWidth="6"
-                            fill="none"
-                            strokeLinecap="round"
-                            strokeDasharray={circumference}
-                            strokeDashoffset={offset}
-                          />
-                        </svg>
-                        <span className="absolute text-sm font-bold text-foreground">{total}%</span>
-                      </div>
-                      <p className="mt-2 text-center text-xs font-semibold text-foreground">{score.match_label} Match</p>
-
-                      <div className="mt-3 space-y-2">
-                        {[
-                          { label: "Skills", value: score.breakdown.skills, max: 40 },
-                          { label: "Experience", value: score.breakdown.experience, max: 25 },
-                          { label: "Location", value: score.breakdown.location, max: 15 },
-                          { label: "Salary", value: score.breakdown.salary, max: 20 },
-                        ].map((item) => (
-                          <div key={item.label}>
-                            <div className="mb-0.5 flex justify-between text-[10px] text-muted-foreground">
-                              <span>{item.label}</span>
-                              <span>{item.value}/{item.max}</span>
-                            </div>
-                            <div className="h-1.5 rounded-full bg-gray-200">
-                              <div
-                                className="h-1.5 rounded-full bg-violet-500"
-                                style={{ width: `${Math.min(100, (item.value / item.max) * 100)}%` }}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="rounded-xl border border-border bg-muted/40 p-3 text-center text-xs text-muted-foreground">
-                      Complete profile for match score
-                    </div>
-                  )}
-                </div>
                 <div className="flex gap-2 ml-4">
                   <button onClick={() => setSelectedJob(job.id)} className="px-4 py-2 bg-muted text-foreground rounded-xl text-sm font-medium hover:bg-secondary transition-colors">
                     Details
@@ -291,7 +232,7 @@ const CandidateJobs = () => {
                   ) : !job.can_apply ? (
                     <span className="px-4 py-2 bg-muted text-muted-foreground rounded-xl text-sm font-semibold">Inactive</span>
                   ) : (
-                    <button onClick={() => setConfirmApply(job.id)} disabled={isLoading} className="gradient-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-semibold hover-lift disabled:opacity-50 disabled:cursor-not-allowed">
+                    <button onClick={() => startApplyChat(job.id)} disabled={isLoading} className="gradient-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-semibold hover-lift disabled:opacity-50 disabled:cursor-not-allowed">
                       Apply
                     </button>
                   )}
@@ -342,7 +283,7 @@ const CandidateJobs = () => {
               <DialogFooter>
                 <Button variant="outline" onClick={() => setSelectedJob(null)}>Close</Button>
                 {viewJob.can_apply && !viewJob.has_applied && (
-                  <Button onClick={() => { setConfirmApply(viewJob.id); setSelectedJob(null); }}>Apply Now</Button>
+                  <Button onClick={() => { startApplyChat(viewJob.id); setSelectedJob(null); }}>Apply Now</Button>
                 )}
               </DialogFooter>
             </>
@@ -350,14 +291,37 @@ const CandidateJobs = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Confirm Apply */}
-      <Dialog open={!!confirmApply} onOpenChange={() => setConfirmApply(null)}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader><DialogTitle>Confirm Application</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">Submit your application for this position? Your profile information will be shared with the employer.</p>
+      {/* Apply Chat Flow */}
+      <Dialog open={isChatOpen} onOpenChange={() => { setIsChatOpen(false); setConfirmApply(null); setChatMessages([]); setChatStep(0); setApplicationData({}); }}>
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Apply via Chat</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col h-[520px] bg-card rounded-3xl overflow-hidden border border-border">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {chatMessages.map((msg) => (
+                <div key={msg.id} className={`flex ${msg.isBot ? "justify-start" : "justify-end"}`}>
+                  <div className={`max-w-[85%] px-4 py-3 rounded-3xl text-sm ${msg.isBot ? "bg-muted text-foreground rounded-bl-none" : "gradient-primary text-primary-foreground rounded-br-none"}`}>
+                    <p className="whitespace-pre-line">{msg.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-border p-4 bg-background">
+              <div className="flex items-center gap-2">
+                <input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleChatSubmit()}
+                  placeholder="Type your response..."
+                  className="flex-1 bg-muted rounded-2xl px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
+                />
+                <Button disabled={!chatInput.trim()} onClick={handleChatSubmit}>Send</Button>
+              </div>
+            </div>
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmApply(null)}>Cancel</Button>
-            <Button onClick={handleApply}>Submit Application</Button>
+            <Button variant="outline" onClick={() => { setIsChatOpen(false); setConfirmApply(null); setChatMessages([]); setChatStep(0); setApplicationData({}); }}>Cancel</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

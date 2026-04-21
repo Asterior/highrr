@@ -9,7 +9,15 @@ import {
 import { useStore } from "@/stores/useStore";
 import { toast } from "@/hooks/use-toast";
 import PageLayout from "@/components/PageLayout";
-import { apiClient } from "@/services/api";
+import axios from 'axios';
+
+// ============= API Configuration =============
+const API_BASE = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8000`;
+
+const getAuthHeaders = () => ({
+  Authorization: `Bearer ${localStorage.getItem('token')}`,
+  'Content-Type': 'application/json',
+});
 
 // ============= Types =============
 interface CandidateProfile {
@@ -129,87 +137,87 @@ interface CompleteProfile extends CandidateProfile {
 // ============= API Service =============
 const candidateProfileService = {
   getMyProfile: async (): Promise<CompleteProfile> => {
-    const response = await apiClient.get("/profile/me");
+    const response = await axios.get(`${API_BASE}/profile/me`, { headers: getAuthHeaders() });
     return response.data;
   },
   
   createProfile: async (data: any) => {
-    const response = await apiClient.post("/profile/", data);
+    const response = await axios.post(`${API_BASE}/profile/`, data, { headers: getAuthHeaders() });
     return response.data;
   },
   
   updateProfile: async (data: any) => {
-    const response = await apiClient.put("/profile/me", data);
+    const response = await axios.put(`${API_BASE}/profile/me`, data, { headers: getAuthHeaders() });
     return response.data;
   },
   
   addWorkExperience: async (data: any) => {
-    const response = await apiClient.post("/profile/work-experience", data);
+    const response = await axios.post(`${API_BASE}/profile/work-experience`, data, { headers: getAuthHeaders() });
     return response.data;
   },
   
   updateWorkExperience: async (id: number, data: any) => {
-    const response = await apiClient.put(`/profile/work-experience/${id}`, data);
+    const response = await axios.put(`${API_BASE}/profile/work-experience/${id}`, data, { headers: getAuthHeaders() });
     return response.data;
   },
   
   deleteWorkExperience: async (id: number) => {
-    await apiClient.delete(`/profile/work-experience/${id}`);
+    await axios.delete(`${API_BASE}/profile/work-experience/${id}`, { headers: getAuthHeaders() });
   },
   
   addEducation: async (data: any) => {
-    const response = await apiClient.post("/profile/education", data);
+    const response = await axios.post(`${API_BASE}/profile/education`, data, { headers: getAuthHeaders() });
     return response.data;
   },
   
   updateEducation: async (id: number, data: any) => {
-    const response = await apiClient.put(`/profile/education/${id}`, data);
+    const response = await axios.put(`${API_BASE}/profile/education/${id}`, data, { headers: getAuthHeaders() });
     return response.data;
   },
   
   deleteEducation: async (id: number) => {
-    await apiClient.delete(`/profile/education/${id}`);
+    await axios.delete(`${API_BASE}/profile/education/${id}`, { headers: getAuthHeaders() });
   },
   
   addSkill: async (data: any) => {
-    const response = await apiClient.post("/profile/skills", data);
+    const response = await axios.post(`${API_BASE}/profile/skills`, data, { headers: getAuthHeaders() });
     return response.data;
   },
   
   deleteSkill: async (id: number) => {
-    await apiClient.delete(`/profile/skills/${id}`);
+    await axios.delete(`${API_BASE}/profile/skills/${id}`, { headers: getAuthHeaders() });
   },
   
   addProject: async (data: any) => {
-    const response = await apiClient.post("/profile/projects", data);
+    const response = await axios.post(`${API_BASE}/profile/projects`, data, { headers: getAuthHeaders() });
     return response.data;
   },
   
   updateProject: async (id: number, data: any) => {
-    const response = await apiClient.put(`/profile/projects/${id}`, data);
+    const response = await axios.put(`${API_BASE}/profile/projects/${id}`, data, { headers: getAuthHeaders() });
     return response.data;
   },
   
   deleteProject: async (id: number) => {
-    await apiClient.delete(`/profile/projects/${id}`);
+    await axios.delete(`${API_BASE}/profile/projects/${id}`, { headers: getAuthHeaders() });
   },
   
   addCertification: async (data: any) => {
-    const response = await apiClient.post("/profile/certifications", data);
+    const response = await axios.post(`${API_BASE}/profile/certifications`, data, { headers: getAuthHeaders() });
     return response.data;
   },
   
   deleteCertification: async (id: number) => {
-    await apiClient.delete(`/profile/certifications/${id}`);
+    await axios.delete(`${API_BASE}/profile/certifications/${id}`, { headers: getAuthHeaders() });
   },
   
   addSocialLink: async (data: any) => {
-    const response = await apiClient.post("/profile/social-links", data);
+    const response = await axios.post(`${API_BASE}/profile/social-links`, data, { headers: getAuthHeaders() });
     return response.data;
   },
   
   deleteSocialLink: async (id: number) => {
-    await apiClient.delete(`/profile/social-links/${id}`);
+    await axios.delete(`${API_BASE}/profile/social-links/${id}`, { headers: getAuthHeaders() });
   },
   
   uploadResume: async (file: File, title: string, isPrimary: boolean = false) => {
@@ -218,8 +226,11 @@ const candidateProfileService = {
     formData.append('title', title);
     formData.append('is_primary', String(isPrimary));
     
-    const response = await apiClient.post("/profile/upload/resume", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+    const response = await axios.post(`${API_BASE}/profile/upload/resume`, formData, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'multipart/form-data',
+      },
     });
     return response.data;
   },
@@ -228,8 +239,11 @@ const candidateProfileService = {
     const formData = new FormData();
     formData.append('file', file);
     
-    const response = await apiClient.post("/profile/upload/avatar", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+    const response = await axios.post(`${API_BASE}/profile/upload/avatar`, formData, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'multipart/form-data',
+      },
     });
     return response.data;
   },
@@ -237,7 +251,7 @@ const candidateProfileService = {
 
 // ============= MAIN COMPONENT =============
 const CandidateProfilePage = () => {
-  const { user, updateProfile } = useStore();
+  const { user } = useStore();
   const [profile, setProfile] = useState<CompleteProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'experience' | 'education' | 'skills' | 'projects' | 'certifications'>('overview');
@@ -453,20 +467,7 @@ const CandidateProfilePage = () => {
       </AnimatePresence>
 
       {/* Modals */}
-      <BasicInfoModal
-        isOpen={showBasicInfoModal}
-        onClose={() => setShowBasicInfoModal(false)}
-        profile={profile}
-        onSave={loadProfile}
-        onProfileUpdated={(updated: any) => {
-          updateProfile({
-            name: updated.full_name,
-            email: updated.email,
-            phone: updated.phone,
-            location: updated.current_location,
-          });
-        }}
-      />
+      <BasicInfoModal isOpen={showBasicInfoModal} onClose={() => setShowBasicInfoModal(false)} profile={profile} onSave={loadProfile} />
       <ExperienceModal isOpen={showExperienceModal} onClose={() => { setShowExperienceModal(false); setEditingItem(null); }} experience={editingItem} profileId={profile.id} onSave={loadProfile} />
       <EducationModal isOpen={showEducationModal} onClose={() => { setShowEducationModal(false); setEditingItem(null); }} education={editingItem} profileId={profile.id} onSave={loadProfile} />
       <SkillModal isOpen={showSkillModal} onClose={() => { setShowSkillModal(false); setEditingItem(null); }} skill={editingItem} profileId={profile.id} onSave={loadProfile} />
@@ -1089,7 +1090,7 @@ const CreateProfilePrompt = ({ onCreated, userId }: any) => {
   );
 };
 
-const BasicInfoModal = ({ isOpen, onClose, profile, onSave, onProfileUpdated }: any) => {
+const BasicInfoModal = ({ isOpen, onClose, profile, onSave }: any) => {
   const [form, setForm] = useState({
     full_name: '',
     email: '',
@@ -1126,8 +1127,7 @@ const BasicInfoModal = ({ isOpen, onClose, profile, onSave, onProfileUpdated }: 
   const handleSave = async () => {
     try {
       setSaving(true);
-      const updated = await candidateProfileService.updateProfile(form);
-      onProfileUpdated?.(updated);
+      await candidateProfileService.updateProfile(form);
       toast({ title: "Profile updated!" });
       onSave();
       onClose();

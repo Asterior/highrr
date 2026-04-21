@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { MessageSquare, X, Send } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { askAssistant } from "@/services/api";
+import { useStore } from "@/stores/useStore";
 
 interface ChatMessage {
   id: string;
@@ -9,42 +9,48 @@ interface ChatMessage {
   isBot: boolean;
 }
 
+const botResponses: Record<string, string> = {
+  "best candidate": "Based on scores, your top candidate is the one with the highest match score. Check the Pipeline page for details!",
+  "pipeline": "Your pipeline currently has candidates across all stages. Use the Pipeline page to drag and drop candidates between stages.",
+  "interview": "You can schedule interviews from the Interviews page. Click 'Schedule Interview' to get started.",
+  "job": "You can create new jobs from the Jobs page or go to /jobs/create for the full form.",
+  "analytics": "Check the Analytics page for conversion funnels, drop-off rates, and time-to-hire metrics.",
+  "help": "I can help with:\n• Finding best candidates\n• Pipeline stats\n• Interview scheduling\n• Job posting\n• Analytics insights\n\nJust ask!",
+};
+
+const getResponse = (input: string, state: ReturnType<typeof useStore.getState>): string => {
+  const lower = input.toLowerCase();
+
+  for (const [key, response] of Object.entries(botResponses)) {
+    if (lower.includes(key)) return response;
+  }
+
+  if (lower.includes("stat") || lower.includes("number") || lower.includes("how many")) {
+    const { jobs, applications, interviews } = state;
+    return `Here are your current stats:\n• ${jobs.filter((j) => j.status === "Active").length} active jobs\n• ${applications.length} total candidates\n• ${interviews.filter((i) => i.status === "scheduled").length} upcoming interviews\n• ${applications.filter((a) => a.status === "selected").length} candidates selected`;
+  }
+
+  if (lower.includes("top") || lower.includes("best")) {
+    const top = [...state.applications].sort((a, b) => b.score - a.score).slice(0, 3);
+    return `Top candidates:\n${top.map((c, i) => `${i + 1}. ${c.candidate_name} (${c.score}% match) - ${c.role}`).join("\n")}`;
+  }
+
+  return "I'm Highrr's AI assistant. Try asking about your best candidates, pipeline stats, interviews, or type 'help' for all options.";
+};
+
 const ChatBot = () => {
   const [open, setOpen] = useState(false);
-  const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: "1", text: "Hi! I'm Highrr AI. I can help with ATS scans, hierarchy, interviews, jobs, and messaging workflows.", isBot: true },
+    { id: "1", text: "Hi! I'm Highrr AI. How can I help you today? Type 'help' to see what I can do.", isBot: true },
   ]);
   const [input, setInput] = useState("");
 
-  const handleSend = async () => {
+  const handleSend = () => {
     if (!input.trim()) return;
-    const token = localStorage.getItem("token");
-    if (!token) return;
-
-    const history = messages
-      .filter((msg) => msg.id !== "1")
-      .map((msg) => ({ role: msg.isBot ? "assistant" as const : "user" as const, text: msg.text }));
-
     const userMsg: ChatMessage = { id: Date.now().toString(), text: input, isBot: false };
-    setMessages((prev) => [...prev, userMsg]);
-    setSending(true);
-
-    try {
-      const data = await askAssistant(token, input.trim(), history);
-      const botMsg: ChatMessage = { id: (Date.now() + 1).toString(), text: data.reply || "I couldn't generate a response right now.", isBot: true };
-      setMessages((prev) => [...prev, botMsg]);
-    } catch {
-      const botMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        text: "Assistant is temporarily unavailable. Try asking about ATS score, hierarchy flow, interviews, or job creation.",
-        isBot: true,
-      };
-      setMessages((prev) => [...prev, botMsg]);
-    } finally {
-      setSending(false);
-    }
-
+    const state = useStore.getState();
+    const botMsg: ChatMessage = { id: (Date.now() + 1).toString(), text: getResponse(input, state), isBot: true };
+    setMessages((prev) => [...prev, userMsg, botMsg]);
     setInput("");
   };
 
@@ -80,11 +86,11 @@ const ChatBot = () => {
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && !sending && handleSend()}
+                  onKeyDown={(e) => e.key === "Enter" && handleSend()}
                   placeholder="Ask anything..."
                   className="flex-1 bg-muted rounded-xl px-3 py-2 text-sm outline-none placeholder:text-muted-foreground"
                 />
-                <button onClick={handleSend} disabled={!input.trim() || sending} className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center text-primary-foreground disabled:opacity-50">
+                <button onClick={handleSend} disabled={!input.trim()} className="w-8 h-8 gradient-primary rounded-lg flex items-center justify-center text-primary-foreground disabled:opacity-50">
                   <Send className="w-3.5 h-3.5" />
                 </button>
               </div>

@@ -1,4 +1,6 @@
+# backend/app/schemas/message.py
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -11,13 +13,15 @@ class ConversationResponse(BaseModel):
     id: int
     participant_one_id: int
     participant_two_id: int
-    participant_id: int | None = None
-    participant_name: str | None = None
-    participant_role: str | None = None
-    unread_count: int = 0
     created_at: datetime
-    last_message: str | None
-    last_message_time: datetime | None
+    last_message: Optional[str] = None
+    last_message_time: Optional[datetime] = None
+
+    # These must match exactly what the endpoint sets on this object
+    participant_id: Optional[int] = None
+    participant_name: Optional[str] = None
+    participant_avatar: Optional[str] = None
+    unread_count: int = 0
 
     class Config:
         from_attributes = True
@@ -36,6 +40,7 @@ class MessageResponse(BaseModel):
     message: str
     sent_at: datetime
     is_read: bool
+    is_flagged: bool = False
 
     class Config:
         from_attributes = True

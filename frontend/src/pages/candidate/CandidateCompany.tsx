@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Building2, Globe, ShieldCheck, BadgeCheck, MapPin, ArrowLeft, Briefcase, Mail, Users, MessageSquare } from "lucide-react";
+import { Building2, Globe, ShieldCheck, BadgeCheck, MapPin, ArrowLeft, Briefcase, Mail, Users } from "lucide-react";
 import PageLayout from "@/components/PageLayout";
-import VerificationBadge from "@/components/VerificationBadge";
 import { useStore } from "@/stores/useStore";
-import { EmployerBadgeResponse, getCompanyTrust, getEmployerBadge } from "@/services/api";
+import { getCompanyTrust } from "@/services/api";
 import { toast } from "@/hooks/use-toast";
 
 const CandidateCompany = () => {
@@ -14,7 +13,6 @@ const CandidateCompany = () => {
   const { jobs, loadJobs } = useStore();
   const [loading, setLoading] = useState(true);
   const [company, setCompany] = useState<any>(null);
-  const [employerBadge, setEmployerBadge] = useState<EmployerBadgeResponse | null>(null);
 
   useEffect(() => {
     const loadCompany = async () => {
@@ -26,11 +24,6 @@ const CandidateCompany = () => {
         await loadJobs();
         const data = await getCompanyTrust(token, recruiterId);
         setCompany(data);
-        try {
-          setEmployerBadge(await getEmployerBadge(Number(recruiterId)));
-        } catch {
-          setEmployerBadge(null);
-        }
       } catch (error: any) {
         toast({ title: "Company profile unavailable", description: error.message, variant: "destructive" });
       } finally {
@@ -74,17 +67,9 @@ const CandidateCompany = () => {
         <button onClick={() => navigate(-1)} className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground shadow-card hover-lift">
           <ArrowLeft className="h-4 w-4" /> Back
         </button>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => navigate(`/candidate/messages?participantId=${recruiterId}`)}
-            className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground shadow-card hover-lift"
-          >
-            <MessageSquare className="h-4 w-4" /> Message Recruiter
-          </button>
-          <button onClick={() => navigate("/candidate/jobs")} className="rounded-xl bg-muted px-4 py-2.5 text-sm font-semibold text-foreground">
-            Browse more jobs
-          </button>
-        </div>
+        <button onClick={() => navigate("/candidate/jobs")} className="rounded-xl bg-muted px-4 py-2.5 text-sm font-semibold text-foreground">
+          Browse more jobs
+        </button>
       </div>
 
       <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="overflow-hidden rounded-[2rem] border border-border bg-gradient-to-br from-white via-violet-50/40 to-white shadow-card">
@@ -94,18 +79,6 @@ const CandidateCompany = () => {
               <ShieldCheck className="h-3.5 w-3.5" /> Candidate-visible company trust
             </div>
             <h1 className="mt-4 text-3xl font-bold text-foreground">{company.company_name}</h1>
-            {employerBadge && (
-              <div className="mt-2 flex items-center gap-2">
-                <VerificationBadge
-                  badgeLevel={employerBadge.badge_level}
-                  checks={{
-                    gst: employerBadge.gst_verified,
-                    domain: employerBadge.domain_verified,
-                    linkedin: employerBadge.linkedin_verified,
-                  }}
-                />
-              </div>
-            )}
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
               This view is built for candidates to review a company before applying. The trust layer is live, API-backed, and updated by recruiter verification, reports, and posting behavior.
             </p>

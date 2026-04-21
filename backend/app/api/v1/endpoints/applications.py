@@ -139,23 +139,23 @@ def get_my_applications(
 
 
 VALID_STATUSES = ["applied", "shortlisted", "interview", "selected", "rejected"]
-
-# Strict one-way progression map:
-# - Candidates move forward only.
-# - Rejected can be set from active stages, but there is no return path.
-ALLOWED_TRANSITIONS = {
-    "applied": {"shortlisted", "rejected"},
-    "shortlisted": {"interview", "rejected"},
-    "interview": {"selected", "rejected"},
-    "selected": set(),
-    "rejected": set(),
-}
+FORWARD_FLOW = ["applied", "shortlisted", "interview", "selected"]
 
 
 def is_valid_transition(current_status: str, target_status: str) -> bool:
     if current_status == target_status:
         return True
-    return target_status in ALLOWED_TRANSITIONS.get(current_status, set())
+
+    if target_status == "rejected":
+        return True
+
+    if current_status == "rejected":
+        return False
+
+    if current_status not in FORWARD_FLOW or target_status not in FORWARD_FLOW:
+        return False
+
+    return FORWARD_FLOW.index(target_status) == FORWARD_FLOW.index(current_status) + 1
 
 
 @router.put("/{application_id}")
@@ -183,7 +183,7 @@ def update_application_status(
     if not is_valid_transition(app.status, payload.status):
         raise HTTPException(
             status_code=400,
-            detail="Invalid status transition: backward movement is not allowed",
+            detail="Invalid status transition: only next step forward or rejected is allowed",
         )
 
     app.status = payload.status

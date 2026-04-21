@@ -1,2 +1,0 @@
-"""Application model package exports."""
-

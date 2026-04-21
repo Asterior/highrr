@@ -16,8 +16,6 @@ from app.models.job import Job
 from app.models.recruiter_reputation import RecruiterReputation
 from app.models.user import User
 
-# NEVER run this in production.
-
 
 def clear_tables(db):
     inspector = inspect(engine)
@@ -226,7 +224,7 @@ def seed_applications_and_interviews(db, users, jobs):
             mode="online",
             timezone="Asia/Kolkata",
             notes="System design + coding round",
-            meeting_link="https://meet.highrr.local/interview",
+            meeting_link="https://meet.google.com/highrr-interview",
             candidate_response_status="pending",
             candidate_preferred_slots=[],
             status_history=[{"status": "scheduled", "date": datetime.utcnow().isoformat()}],

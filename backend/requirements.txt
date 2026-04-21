@@ -1,7 +1,6 @@
 fastapi
 uvicorn
 sqlalchemy
-alembic
 psycopg2-binary
 passlib[bcrypt]
 bcrypt==3.2.2
@@ -9,7 +8,4 @@ python-jose
 python-multipart
 email-validator
 python-dotenv
-pypdf
-python-docx
-slowapi
-apscheduler
+websockets

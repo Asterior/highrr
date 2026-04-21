@@ -1,22 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { BadgeCheck, Building2, CalendarClock, CheckCircle2, ExternalLink, ShieldAlert, Users, XCircle } from "lucide-react";
+import { BadgeCheck, Building2, CalendarClock, ShieldAlert, Users } from "lucide-react";
 import PageLayout from "@/components/PageLayout";
-import { getAdminVerificationProfile, getEmployerBadge, getVerificationQueue, reviewVerificationSubmission } from "@/services/api";
+import { getVerificationQueue, reviewVerificationSubmission } from "@/services/api";
 import { useStore } from "@/stores/useStore";
 import { toast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 
 const AdminVerificationQueue = () => {
   const { user } = useStore();
   const [loading, setLoading] = useState(true);
   const [queue, setQueue] = useState<any[]>([]);
   const [submittingId, setSubmittingId] = useState<number | null>(null);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [profile, setProfile] = useState<any | null>(null);
-  const [badge, setBadge] = useState<any | null>(null);
   const [reviewForm, setReviewForm] = useState<Record<number, { verification_level: string; trust_score: number; admin_notes: string }>>({});
 
   useEffect(() => {
@@ -45,33 +39,6 @@ const AdminVerificationQueue = () => {
     };
     loadQueue();
   }, []);
-
-  const openProfile = async (item: any) => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      toast({ title: "Not authenticated", variant: "destructive" });
-      return;
-    }
-
-    setProfileOpen(true);
-    setProfileLoading(true);
-    setProfile(null);
-    setBadge(null);
-
-    try {
-      const [profileData, badgeData] = await Promise.all([
-        getAdminVerificationProfile(token, item.recruiter_id),
-        getEmployerBadge(item.recruiter_id),
-      ]);
-      setProfile(profileData);
-      setBadge(badgeData);
-    } catch (error: any) {
-      toast({ title: "Could not load full profile", description: error.message, variant: "destructive" });
-      setProfileOpen(false);
-    } finally {
-      setProfileLoading(false);
-    }
-  };
 
   const applyReview = async (item: any, action: "approve" | "reject") => {
     const token = localStorage.getItem("token");
@@ -165,9 +132,8 @@ const AdminVerificationQueue = () => {
         ) : (
           queue.map((item, index) => {
             const levelClass = item.verification_level === "trusted" ? "bg-emerald-50 text-emerald-700" : item.verification_level === "verified" ? "bg-violet-50 text-violet-700" : "bg-slate-100 text-slate-700";
-            const reviewClass = item.review_status === "pending_review" ? "border-violet-300 bg-violet-50/35" : item.review_status === "rejected" ? "border-rose-200 bg-rose-50/25" : "border-border bg-card";
             return (
-              <motion.div key={item.recruiter_id} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }} className={`rounded-[1.5rem] border p-6 shadow-card ${reviewClass}`}>
+              <motion.div key={item.recruiter_id} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }} className="rounded-[1.5rem] border border-border bg-card p-6 shadow-card">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -208,21 +174,6 @@ const AdminVerificationQueue = () => {
                     <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><CalendarClock className="h-3.5 w-3.5" /> Submission</div>
                     <p className="mt-2 text-sm text-foreground">{item.submitted_at ? new Date(item.submitted_at).toLocaleString() : new Date(item.created_at).toLocaleString()}</p>
                     <p className="mt-1 text-xs text-muted-foreground">Status: {item.review_status}</p>
-                  </div>
-                </div>
-
-                <div className="mt-5 rounded-2xl border border-border bg-muted/20 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Automated check status</p>
-                      <p className="mt-1 text-sm text-foreground">Automated checks run first, then admins approve or reject the submission.</p>
-                    </div>
-                    <button
-                      onClick={() => openProfile(item)}
-                      className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted"
-                    >
-                      View full profile <ExternalLink className="h-3.5 w-3.5" />
-                    </button>
                   </div>
                 </div>
 
@@ -325,78 +276,6 @@ const AdminVerificationQueue = () => {
           })
         )}
       </div>
-
-      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Full verification profile</DialogTitle>
-            <DialogDescription>Review the registration details and automated checks before approving or rejecting.</DialogDescription>
-          </DialogHeader>
-          {profileLoading ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">Loading profile...</div>
-          ) : profile ? (
-            <div className="space-y-5 py-2">
-              <div className="grid gap-3 md:grid-cols-2">
-                {[
-                  ["Company name", profile.company_name],
-                  ["Company email", profile.company_email],
-                  ["Company domain", profile.company_domain],
-                  ["Website", profile.website_url],
-                  ["Business registry ID", profile.business_registry_id],
-                  ["Business country", profile.business_country],
-                  ["LinkedIn", profile.linkedin_company_url],
-                  ["Employee count", profile.employee_count],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-2xl border border-border bg-muted/30 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-                    <p className="mt-1 break-words text-sm text-foreground">{value ? String(value) : "Not shared"}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="rounded-2xl border border-border bg-muted/20 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Submission checks</p>
-                <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  {[
-                    { label: "HTTPS enabled", ok: profile.has_https },
-                    { label: "Contact matches submission", ok: profile.contact_matches_submission },
-                    { label: "Office proof verified", ok: profile.office_proof_verified },
-                    { label: "Pending admin review", ok: profile.review_status === "pending_review" },
-                  ].map((check) => (
-                    <div key={check.label} className="flex items-center gap-2 rounded-xl bg-background px-3 py-2 text-sm">
-                      {check.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <XCircle className="h-4 w-4 text-rose-500" />}
-                      <span>{check.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-border bg-muted/20 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Automated employer check</p>
-                {badge ? (
-                  <div className="mt-3 grid gap-3 md:grid-cols-4 text-sm">
-                    <div className="rounded-xl bg-background p-3">Badge: <span className="font-semibold capitalize">{badge.badge_level}</span></div>
-                    <div className="rounded-xl bg-background p-3">GST: <span className="font-semibold">{badge.gst_verified ? "Verified" : "Not verified"}</span></div>
-                    <div className="rounded-xl bg-background p-3">Domain: <span className="font-semibold">{badge.domain_verified ? "Verified" : "Not verified"}</span></div>
-                    <div className="rounded-xl bg-background p-3">LinkedIn: <span className="font-semibold">{badge.linkedin_verified ? "Verified" : "Not verified"}</span></div>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm text-muted-foreground">No automated check record found yet.</p>
-                )}
-              </div>
-
-              <div className="rounded-2xl border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-                <p><span className="font-semibold text-foreground">Review status:</span> {profile.review_status.replace("_", " ")}</p>
-                <p><span className="font-semibold text-foreground">Trust score:</span> {profile.trust_score}/100</p>
-                {profile.admin_notes && <p className="mt-2 whitespace-pre-wrap"><span className="font-semibold text-foreground">Admin notes:</span> {profile.admin_notes}</p>}
-              </div>
-            </div>
-          ) : null}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setProfileOpen(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </PageLayout>
   );
 };

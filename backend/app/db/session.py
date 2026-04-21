@@ -1,15 +1,11 @@
 import os
-import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from sqlalchemy import create_engine
-from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
-
-LOGGER = logging.getLogger(__name__)
 
 # Load environment variables from backend/.env regardless of current working directory
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
@@ -48,14 +44,3 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def check_db_connection() -> bool:
-    """Runs SELECT 1 to verify database connectivity and logs failures."""
-    try:
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-        return True
-    except Exception as exc:
-        LOGGER.error("Database connection check failed: %s", exc)
-        return False

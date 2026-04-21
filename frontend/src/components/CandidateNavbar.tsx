@@ -1,19 +1,16 @@
 import { Link, useLocation } from "react-router-dom";
-import { ChevronDown, LogOut, User } from "lucide-react";
+import { Bell, ChevronDown, LogOut, User } from "lucide-react";
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { useStore } from "@/stores/useStore";
-import NotificationBell from "@/components/NotificationBell";
 
 const navItems = [
   { label: "Dashboard", path: "/candidate" },
   { label: "Jobs", path: "/candidate/jobs" },
   { label: "Applications", path: "/candidate/applications" },
   { label: "Shortlisted", path: "/candidate/shortlisted" },
+  { label: "Resume", path: "/candidate/resume" },
   { label: "ATS Score", path: "/candidate/ats-score" },
-  { label: "Alerts", path: "/candidate/job-alerts" },
-  { label: "Forums", path: "/forums" },
-  { label: "Tests", path: "/candidate/tests" },
   { label: "Messages", path: "/candidate/messages" },
 ];
 
@@ -35,10 +32,7 @@ const CandidateNavbar = () => {
 
         <div className="hidden lg:flex items-center gap-1">
           {navItems.map((item) => {
-            const isDashboard = item.path === "/candidate";
-            const isActive = isDashboard
-              ? location.pathname === "/candidate"
-              : location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
+            const isActive = location.pathname === item.path;
             return (
               <Link
                 key={item.path}
@@ -60,7 +54,9 @@ const CandidateNavbar = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <NotificationBell />
+          <button className="relative p-2 rounded-lg hover:bg-muted transition-colors">
+            <Bell className="w-5 h-5 text-muted-foreground" />
+          </button>
 
           <div className="relative">
             <div className="flex items-center gap-1">

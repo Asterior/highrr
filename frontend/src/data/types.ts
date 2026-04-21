@@ -107,77 +107,6 @@ export interface Conversation {
   messages: Message[];
 }
 
-export interface ForumCategory {
-  id: number;
-  name: string;
-  description: string;
-  slug: string;
-  icon?: string | null;
-  thread_count: number;
-}
-
-export interface ForumThread {
-  id: number;
-  title: string;
-  body: string;
-  author_name: string;
-  author_role: UserRole;
-  category_name: string;
-  category_slug?: string | null;
-  is_pinned: boolean;
-  is_locked: boolean;
-  is_flagged: boolean;
-  view_count: number;
-  reply_count: number;
-  upvote_count: number;
-  created_at: string;
-  is_upvoted?: boolean | null;
-}
-
-export interface ForumPost {
-  id: number;
-  thread_id: number;
-  author_name: string;
-  author_role: UserRole;
-  body: string;
-  upvote_count: number;
-  created_at: string;
-  is_upvoted?: boolean | null;
-}
-
-export interface ForumThreadDetail extends ForumThread {
-  posts: ForumPost[];
-}
-
-export interface ForumThreadPage {
-  items: ForumThread[];
-  total: number;
-  page: number;
-  pages: number;
-}
-
-export interface ForumUpvoteResponse {
-  upvoted: boolean;
-  upvote_count: number;
-}
-
-export interface ForumReportPayload {
-  thread_id?: number | null;
-  post_id?: number | null;
-  reason: string;
-}
-
-export interface ForumModerationItem {
-  type: "thread" | "post";
-  id: number;
-  content_preview: string;
-  author_name: string;
-  report_count: number;
-  reasons: string[];
-  report_ids: number[];
-  created_at: string;
-}
-
 export interface CurrentUser {
   id: number;
   name: string;
@@ -238,17 +167,18 @@ export type PipelineStatus = "applied" | "shortlisted" | "interview" | "selected
 export const PIPELINE_ORDER: PipelineStatus[] = ["applied", "shortlisted", "interview", "selected"];
 
 export const isValidTransition = (from: PipelineStatus, to: PipelineStatus): boolean => {
-  if (from === to) return true;
-
-  const transitions: Record<PipelineStatus, PipelineStatus[]> = {
-    applied: ["shortlisted", "rejected"],
-    shortlisted: ["interview", "rejected"],
-    interview: ["selected", "rejected"],
-    selected: [],
-    rejected: [],
-  };
-
-  return transitions[from]?.includes(to) ?? false;
+  // Can always move to rejected (terminal state)
+  if (to === "rejected") return true;
+  
+  // Can't move back from rejected
+  if (from === "rejected") return false;
+  
+  const fromIdx = PIPELINE_ORDER.indexOf(from);
+  const toIdx = PIPELINE_ORDER.indexOf(to);
+  if (fromIdx === -1 || toIdx === -1) return false;
+  
+  // Only allow forward moves to adjacent stages (one step forward)
+  return toIdx === fromIdx + 1;
 };
 
 export interface CandidateProfile {

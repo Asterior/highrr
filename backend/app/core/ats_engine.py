@@ -1,12 +1,11 @@
 import re
 import json
 import os
-from typing import Any
+import urllib.error
+import urllib.request
 
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import OllamaResponseError, OllamaTimeoutError, OllamaUnavailableError
-from app.core.ollama_client import OllamaClient
 from app.models.candidate_profile import CandidateProfile
 from app.models.job import Job
 
@@ -16,7 +15,11 @@ STOPWORDS = {
 }
 
 
-def _ollama_insights(
+def _gemini_enabled() -> bool:
+    return os.getenv("ENABLE_GEMINI_ATS", "true").lower() == "true" and bool(os.getenv("GEMINI_API_KEY"))
+
+
+def _gemini_insights(
     *,
     job_title: str,
     job_description: str | None,
@@ -25,6 +28,10 @@ def _ollama_insights(
     missing_skills: list[str],
     current_score: int,
 ) -> dict | None:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return None
+
     prompt = (
         "You are an ATS evaluator. Return ONLY valid JSON with keys strengths and improvements. "
         "Each value must be an array of short strings. Max 4 strengths and 5 improvements. "
@@ -36,21 +43,47 @@ def _ollama_insights(
         f"Job description: {(job_description or '')[:1200]}"
     )
 
+    body = {
+        "contents": [
+            {
+                "parts": [{"text": prompt}],
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.2,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
     try:
-        client = OllamaClient()
-        text = client.generate(prompt=prompt)
-        if not text:
-            return None
-        parsed = json.loads(text)
-        strengths = parsed.get("strengths", [])
-        improvements = parsed.get("improvements", [])
-        if not isinstance(strengths, list) or not isinstance(improvements, list):
-            return None
-        return {
-            "strengths": [str(item) for item in strengths[:4]],
-            "improvements": [str(item) for item in improvements[:5]],
-        }
-    except (OllamaUnavailableError, OllamaTimeoutError, OllamaResponseError, ValueError, json.JSONDecodeError, RuntimeError):
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            text = (
+                payload.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+            )
+            if not text:
+                return None
+            parsed = json.loads(text)
+            strengths = parsed.get("strengths", [])
+            improvements = parsed.get("improvements", [])
+            if not isinstance(strengths, list) or not isinstance(improvements, list):
+                return None
+            return {
+                "strengths": [str(item) for item in strengths[:4]],
+                "improvements": [str(item) for item in improvements[:5]],
+            }
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
         return None
 
 
@@ -74,18 +107,15 @@ def _safe_pct(matched: int, total: int) -> float:
     return (matched / total) * 100.0
 
 
-def score_job_fit(profile: CandidateProfile, job: Job, resume_signals: dict[str, Any] | None = None) -> dict:
-    resume_signals = resume_signals or {}
-    resume_skill_tokens = {str(skill).strip().lower() for skill in (resume_signals.get("skills") or []) if str(skill).strip()}
-    profile_skill_tokens = {skill.skill_name.strip().lower() for skill in (profile.skills or []) if skill.skill_name}
-    candidate_skills = resume_skill_tokens or profile_skill_tokens
+def score_job_fit(profile: CandidateProfile, job: Job) -> dict:
+    candidate_skills = {skill.skill_name.strip().lower() for skill in (profile.skills or []) if skill.skill_name}
     required_skills = [skill.strip().lower() for skill in (job.required_skills or []) if skill and str(skill).strip()]
     matched_skills = [skill for skill in required_skills if skill in candidate_skills]
     missing_skills = [skill for skill in required_skills if skill not in candidate_skills]
 
     skills_component = min(45.0, _safe_pct(len(matched_skills), max(len(required_skills), 1)) * 0.45)
 
-    candidate_exp = float(resume_signals.get("experience_years") or profile.total_experience_years or 0.0)
+    candidate_exp = float(profile.total_experience_years or 0.0)
     required_exp = _extract_years(job.experience_required)
     if required_exp <= 0:
         experience_component = 14.0
@@ -94,8 +124,7 @@ def score_job_fit(profile: CandidateProfile, job: Job, resume_signals: dict[str,
         experience_component = min(20.0, ratio * 20.0)
 
     jd_tokens = set(_tokenize(job.description) + _tokenize(getattr(job, "responsibilities", None)))
-    resume_text = str(resume_signals.get("text") or "")
-    profile_tokens = set(_tokenize(resume_text) + _tokenize(profile.bio) + [skill for skill in candidate_skills])
+    profile_tokens = set(_tokenize(profile.bio) + [skill for skill in candidate_skills])
     keyword_overlap = len(jd_tokens.intersection(profile_tokens))
     keyword_base = max(len(jd_tokens), 1)
     keyword_component = min(15.0, _safe_pct(keyword_overlap, keyword_base) * 0.15)
@@ -161,16 +190,16 @@ def score_job_fit(profile: CandidateProfile, job: Job, resume_signals: dict[str,
     }
 
 
-def _enrich_results_with_llm(results: list[dict], jobs_by_id: dict[int, Job]) -> None:
-    if not results:
+def _enrich_results_with_gemini(results: list[dict], jobs_by_id: dict[int, Job]) -> None:
+    if not _gemini_enabled() or not results:
         return
 
-    top_n = int(os.getenv("ATS_TOP_N", "3") or "3")
+    top_n = int(os.getenv("GEMINI_ATS_TOP_N", "3") or "3")
     for result in results[:max(1, top_n)]:
         job = jobs_by_id.get(result["job_id"])
         if not job:
             continue
-        enhanced = _ollama_insights(
+        enhanced = _gemini_insights(
             job_title=job.title,
             job_description=job.description,
             required_skills=job.required_skills or [],
@@ -182,38 +211,20 @@ def _enrich_results_with_llm(results: list[dict], jobs_by_id: dict[int, Job]) ->
             result["insights"] = enhanced
 
 
-def build_candidate_ats_snapshot(
-    db: Session,
-    candidate_user_id: int,
-    job_id: int | None = None,
-    resume_signals: dict[str, Any] | None = None,
-) -> dict:
+def build_candidate_ats_snapshot(db: Session, candidate_user_id: int, job_id: int | None = None) -> dict:
     profile = db.query(CandidateProfile).filter(CandidateProfile.user_id == candidate_user_id).first()
     if not profile:
-        if not resume_signals:
-            raise ValueError("Candidate profile not found")
-
-        # Minimal synthetic profile allows resume-only ATS scans for new candidates.
-        class _ResumeOnlyProfile:
-            def __init__(self, signals: dict[str, Any]):
-                self.skills = []
-                self.total_experience_years = float(signals.get("experience_years") or 0.0)
-                self.bio = str(signals.get("summary") or "")
-                self.profile_completion_percentage = 0
-                self.certifications = []
-                self.educations = []
-
-        profile = _ResumeOnlyProfile(resume_signals)
+        raise ValueError("Candidate profile not found")
 
     query = db.query(Job).filter(Job.is_active == True)  # noqa: E712
     if job_id is not None:
         query = query.filter(Job.id == job_id)
 
     jobs = query.order_by(Job.created_at.desc()).all()
-    results = [score_job_fit(profile, job, resume_signals=resume_signals) for job in jobs]
+    results = [score_job_fit(profile, job) for job in jobs]
     results.sort(key=lambda item: item["ats_score"], reverse=True)
     jobs_by_id = {job.id: job for job in jobs}
-    _enrich_results_with_llm(results, jobs_by_id)
+    _enrich_results_with_gemini(results, jobs_by_id)
 
     avg_score = int(round(sum(item["ats_score"] for item in results) / max(len(results), 1))) if results else 0
     top_recommendations = [item["job_title"] for item in results if item["ats_score"] >= 65][:5]
