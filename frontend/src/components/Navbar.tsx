@@ -1,19 +1,23 @@
 import { Link, useLocation } from "react-router-dom";
-import { Bell, ChevronDown, LogOut, User } from "lucide-react";
+import { ChevronDown, LogOut, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useStore } from "@/stores/useStore";
 import { getRecruiterVerificationStatus } from "@/services/api";
+import NotificationBell from "@/components/NotificationBell";
 
 const navItems = [
   { label: "Jobs", path: "/jobs" },
   { label: "Candidates", path: "/candidates" },
   { label: "Shortlisted", path: "/shortlisted" },
-  { label: "Pipeline", path: "/pipeline" },
+  { label: "Hierarchy", path: "/pipeline" },
   { label: "Interviews", path: "/interviews" },
+  { label: "Forums", path: "/forums" },
   { label: "Messages", path: "/messages" },
   { label: "Analytics", path: "/analytics" },
   { label: "Verification Queue", path: "/verification-queue" },
+  { label: "Forum Moderation", path: "/forums/moderation" },
+  { label: "Tests", path: "/tests/admin" },
 ];
 
 const Navbar = () => {
@@ -53,7 +57,15 @@ const Navbar = () => {
 </Link>
 
         <div className="hidden lg:flex items-center gap-1">
-          {navItems.filter((item) => item.path !== "/verification-queue" || user.role === "admin").map((item) => {
+          {navItems.filter((item) => {
+            if (item.path === "/verification-queue" || item.path === "/tests/admin") {
+              return user.role === "admin";
+            }
+            if (item.path === "/forums/moderation") {
+              return user.role === "admin";
+            }
+            return true;
+          }).map((item) => {
             const isActive = location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path));
             return (
               <Link
@@ -84,10 +96,7 @@ const Navbar = () => {
             </Link>
           )}
 
-          <button className="relative p-2 rounded-lg hover:bg-muted transition-colors">
-            <Bell className="w-5 h-5 text-muted-foreground" />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full gradient-primary" />
-          </button>
+          <NotificationBell />
 
           <div className="relative">
             <div className="flex items-center gap-1">

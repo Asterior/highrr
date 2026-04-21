@@ -38,9 +38,36 @@ def _is_suspicious_message(content: str) -> bool:
     return any(keyword in lowered for keyword in SUSPICIOUS_KEYWORDS)
 
 
+def _serialize_conversation(conv: Conversation, current_user: User, db: Session) -> dict:
+    participant_id = conv.participant_two_id if conv.participant_one_id == current_user.id else conv.participant_one_id
+    participant = db.query(User).filter(User.id == participant_id).first()
+    unread_count = (
+        db.query(Message)
+        .filter(
+            Message.conversation_id == conv.id,
+            Message.receiver_id == current_user.id,
+            Message.is_read == False,  # noqa: E712
+        )
+        .count()
+    )
+
+    return {
+        "id": conv.id,
+        "participant_one_id": conv.participant_one_id,
+        "participant_two_id": conv.participant_two_id,
+        "participant_id": participant_id,
+        "participant_name": participant.name if participant else f"User {participant_id}",
+        "participant_role": participant.role if participant else None,
+        "unread_count": unread_count,
+        "created_at": conv.created_at,
+        "last_message": conv.last_message,
+        "last_message_time": conv.last_message_time,
+    }
+
+
 @router.get("/conversations/", response_model=list[ConversationResponse])
 def get_my_conversations(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return (
+    conversations = (
         db.query(Conversation)
         .filter(
             or_(
@@ -51,6 +78,7 @@ def get_my_conversations(db: Session = Depends(get_db), current_user=Depends(get
         .order_by(Conversation.last_message_time.desc())
         .all()
     )
+    return [_serialize_conversation(conv, current_user, db) for conv in conversations]
 
 
 @router.post("/conversations/", response_model=ConversationResponse)
@@ -84,7 +112,7 @@ def start_conversation(
     )
 
     if existing:
-        return existing
+        return _serialize_conversation(existing, current_user, db)
 
     conv = Conversation(
         participant_one_id=current_user.id,
@@ -94,7 +122,7 @@ def start_conversation(
     db.add(conv)
     db.commit()
     db.refresh(conv)
-    return conv
+    return _serialize_conversation(conv, current_user, db)
 
 
 @router.get("/conversations/{conversation_id}/messages", response_model=list[MessageResponse])

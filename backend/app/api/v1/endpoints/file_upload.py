@@ -1,12 +1,22 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
-from sqlalchemy.orm import Session
-from typing import Optional
 import os
 import uuid
 from datetime import datetime
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from sqlalchemy.orm import Session
+
+from app.core.rate_limit import limiter, user_rate_limit_key
+from app.core.sanitize import sanitize_filename
 from app.db.session import get_db
 from app.api.deps import get_current_user
 from app.core.ats_engine import build_candidate_ats_snapshot
+from app.core.resume_parser import (
+    extract_resume_signals,
+    extract_text_from_file,
+    resolve_upload_dir,
+    storage_path_from_url,
+)
 from app.models.user import User
 from app.models.candidate_profile import CandidateProfile, Resume, Certification
 from app.schemas.candidate_profile import ResumeCreate, ResumeResponse
@@ -14,7 +24,7 @@ from app.schemas.candidate_profile import ResumeCreate, ResumeResponse
 router = APIRouter(prefix="/profile/upload", tags=["File Upload"])
 
 # Configuration
-UPLOAD_DIR = "/home/claude/uploads"
+UPLOAD_DIR = resolve_upload_dir()
 ALLOWED_RESUME_EXTENSIONS = {".pdf", ".doc", ".docx"}
 ALLOWED_CERTIFICATE_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif"}
@@ -24,9 +34,9 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 def ensure_upload_dir():
     """Ensure upload directory exists"""
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    os.makedirs(f"{UPLOAD_DIR}/resumes", exist_ok=True)
-    os.makedirs(f"{UPLOAD_DIR}/certificates", exist_ok=True)
-    os.makedirs(f"{UPLOAD_DIR}/avatars", exist_ok=True)
+    os.makedirs(os.path.join(UPLOAD_DIR, "resumes"), exist_ok=True)
+    os.makedirs(os.path.join(UPLOAD_DIR, "certificates"), exist_ok=True)
+    os.makedirs(os.path.join(UPLOAD_DIR, "avatars"), exist_ok=True)
 
 
 def save_file(file: UploadFile, subdirectory: str) -> tuple[str, str, int]:
@@ -36,9 +46,10 @@ def save_file(file: UploadFile, subdirectory: str) -> tuple[str, str, int]:
     ensure_upload_dir()
     
     # Generate unique filename
-    file_extension = os.path.splitext(file.filename)[1].lower()
+    safe_name = sanitize_filename(file.filename or "upload")
+    file_extension = os.path.splitext(safe_name)[1].lower()
     unique_filename = f"{uuid.uuid4()}{file_extension}"
-    file_path = f"{UPLOAD_DIR}/{subdirectory}/{unique_filename}"
+    file_path = os.path.join(UPLOAD_DIR, subdirectory, unique_filename)
     
     # Save file
     file_content = file.file.read()
@@ -50,7 +61,7 @@ def save_file(file: UploadFile, subdirectory: str) -> tuple[str, str, int]:
     # Return relative path for storage
     relative_path = f"/uploads/{subdirectory}/{unique_filename}"
     
-    return relative_path, file.filename, file_size
+    return relative_path, safe_name, file_size
 
 
 def validate_file(file: UploadFile, allowed_extensions: set, max_size: int):
@@ -82,7 +93,9 @@ def validate_file(file: UploadFile, allowed_extensions: set, max_size: int):
 
 
 @router.post("/resume", response_model=ResumeResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute", key_func=user_rate_limit_key)
 async def upload_resume(
+    request: Request,
     file: UploadFile = File(...),
     title: str = "My Resume",
     is_primary: bool = False,
@@ -198,7 +211,7 @@ async def upload_avatar(
     
     # Delete old avatar if exists
     if profile.avatar_url:
-        old_file_path = f"{UPLOAD_DIR}{profile.avatar_url.replace('/uploads', '')}"
+        old_file_path = storage_path_from_url(profile.avatar_url)
         if os.path.exists(old_file_path):
             os.remove(old_file_path)
     
@@ -325,7 +338,7 @@ def delete_resume(
         )
     
     # Delete physical file
-    file_path = f"{UPLOAD_DIR}{resume.file_url.replace('/uploads', '')}"
+    file_path = storage_path_from_url(resume.file_url)
     if os.path.exists(file_path):
         os.remove(file_path)
     
@@ -365,8 +378,22 @@ async def update_ats_score(
             detail="Not authorized to update this resume"
         )
     
+    resume_storage_path = storage_path_from_url(resume.file_url)
+    resume_text = extract_text_from_file(resume_storage_path)
+    if not resume_text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded resume could not be read. Please upload a clearer PDF or DOCX file.",
+        )
+
     try:
-        snapshot = build_candidate_ats_snapshot(db, current_user.id, job_id=job_id)
+        signals = extract_resume_signals(resume_text)
+        snapshot = build_candidate_ats_snapshot(
+            db,
+            current_user.id,
+            job_id=job_id,
+            resume_signals=signals,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -374,6 +401,10 @@ async def update_ats_score(
     resume.ats_feedback = {
         "source": "analytics_engine",
         "job_id": job_id,
+        "resume_analysis": {
+            "skills_detected": signals.get("skills", [])[:20],
+            "experience_years_detected": signals.get("experience_years", 0.0),
+        },
         "total_jobs_evaluated": snapshot["total_jobs_evaluated"],
         "top_recommendations": snapshot["top_recommendations"],
         "results": snapshot["results"][:5],
@@ -382,10 +413,14 @@ async def update_ats_score(
     
     db.commit()
     db.refresh(resume)
+    top_result = (resume.ats_feedback or {}).get("results", [])
+    top_result = top_result[0] if top_result else None
     
     return {
         "message": "ATS score refreshed successfully",
         "resume_id": resume.id,
         "ats_score": resume.ats_score,
-        "is_ats_optimized": resume.is_ats_optimized
+        "is_ats_optimized": resume.is_ats_optimized,
+        "ats_feedback": resume.ats_feedback,
+        "target_job_result": top_result,
     }

@@ -1,5 +1,59 @@
+/**
+ * Centralized API service module for frontend network communication.
+ * Exposes auth, jobs, applications, and other backend request helpers.
+ */
+import axios, { AxiosError, AxiosInstance } from "axios";
+import type {
+  ForumCategory,
+  ForumModerationItem,
+  ForumPost,
+  ForumThreadDetail,
+  ForumThreadPage,
+  ForumUpvoteResponse,
+} from "@/data/types";
+
 const DEFAULT_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || DEFAULT_BASE_URL;
+
+if (!import.meta.env.VITE_API_BASE_URL) {
+  console.warn("VITE_API_BASE_URL is not set. Falling back to current host.");
+}
+
+export const apiClient: AxiosInstance = axios.create({
+  baseURL: BASE_URL,
+});
+
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) {
+    config.headers = config.headers ?? {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError<{ detail?: string }>) => {
+    const status = error.response?.status;
+    const url = error.config?.url || "unknown";
+    const detail = error.response?.data?.detail || error.message;
+
+    if (status === 401) {
+      localStorage.clear();
+      window.location.href = "/login";
+      console.error("Session expired");
+    } else if (status === 503) {
+      console.error(`AI service unavailable - ${url}`);
+    } else if (status === 500) {
+      console.error(`Server error - ${url}: ${detail}`);
+    } else if (!error.response) {
+      console.error(`Network error - ${url}`);
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 export async function loginWithBackend(email: string, password: string) {
   const formData = new URLSearchParams();
@@ -68,6 +122,96 @@ interface JobPayload {
   application_count?: number;
 }
 
+  export interface JobMatchScore {
+    total_score: number;
+    match_label: "Excellent" | "Good" | "Fair" | "Low";
+    breakdown: {
+      skills: number;
+      experience: number;
+      location: number;
+      salary: number;
+    };
+    matched_skills: string[];
+    missing_skills: string[];
+  }
+
+  export interface AlertCreate {
+    role_keywords: string[];
+    location?: string;
+    min_salary?: number;
+    max_experience?: number;
+  }
+
+  export interface AlertResponse {
+    id: number;
+    candidate_id: number;
+    role_keywords: string[];
+    location: string | null;
+    min_salary: number | null;
+    max_experience: number | null;
+    is_active: boolean;
+    created_at: string;
+    last_triggered_at: string | null;
+  }
+
+  export interface NotificationResponse {
+    id: number;
+    user_id: number;
+    type: string;
+    title: string;
+    body: string;
+    job_id: number | null;
+    is_read: boolean;
+    created_at: string;
+  }
+
+  export interface NotificationListResponse {
+    items: NotificationResponse[];
+    total_count: number;
+    unread_count: number;
+  }
+
+  export interface AlertOptionsResponse {
+    role_keywords: string[];
+    locations: string[];
+    min_salary_options: number[];
+    max_experience_options: number[];
+  }
+
+  export interface EmployerBadgeResponse {
+    recruiter_id: number;
+    badge_level: "verified" | "partial" | "unverified";
+    gst_verified: boolean;
+    domain_verified: boolean;
+    linkedin_verified: boolean;
+    verified_at: string | null;
+  }
+
+  export interface RecruiterVerificationProfileResponse {
+    recruiter_id: number;
+    company_name: string;
+    company_email: string | null;
+    company_domain: string | null;
+    website_url: string | null;
+    business_registry_id: string | null;
+    business_country: string | null;
+    domain_age_years: number;
+    has_https: boolean;
+    contact_matches_submission: boolean;
+    office_proof_verified: boolean;
+    linkedin_company_url: string | null;
+    employee_count: number;
+    user_reports_penalty: number;
+    verification_level: string;
+    trust_score: number;
+    can_post_jobs: boolean;
+    review_status: string;
+    is_locked: boolean;
+    admin_notes: string | null;
+    submitted_at: string | null;
+    reviewed_at: string | null;
+  }
+
 /**
  * Fetch jobs from database with optional filters
  * @param skip - Number of records to skip (pagination)
@@ -81,14 +225,14 @@ export async function getJobs(
   token?: string,
   skip = 0,
   limit = 100,
-  isActive = true,
+  isActive?: boolean,
   department?: string,
   status?: string
 ) {
   const params = new URLSearchParams();
   params.append("skip", skip.toString());
   params.append("limit", limit.toString());
-  params.append("is_active", isActive.toString());
+  if (isActive !== undefined) params.append("is_active", isActive.toString());
   if (department) params.append("department", department);
   if (status) params.append("status", status);
 
@@ -128,6 +272,26 @@ export async function getJobById(jobId: number | string, token?: string) {
   return res.json();
 }
 
+  /**
+   * Fetch candidate-specific job match score for a given job.
+   */
+  export async function getJobMatchScore(jobId: number | string, token: string): Promise<JobMatchScore> {
+    const res = await fetch(`${BASE_URL}/jobs/${jobId}/match-score`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Failed to fetch match score");
+    }
+
+    return res.json();
+  }
+
 /**
  * Create a new job
  */
@@ -147,6 +311,175 @@ export async function createJob(jobData: JobPayload, token: string) {
   }
 
   return res.json();
+}
+
+export async function getNotifications(page = 1, pageSize = 20): Promise<NotificationListResponse> {
+  const token = localStorage.getItem("token") || "";
+  const params = new URLSearchParams();
+  params.append("page", String(page));
+  params.append("page_size", String(pageSize));
+
+  const res = await fetch(`${BASE_URL}/notifications?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to load notifications");
+  }
+
+  return res.json();
+}
+
+export async function markAllNotificationsRead(): Promise<{ marked_read: number }> {
+  const token = localStorage.getItem("token") || "";
+  const res = await fetch(`${BASE_URL}/notifications/read-all`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to mark notifications as read");
+  }
+
+  return res.json();
+}
+
+export async function getAlerts(): Promise<AlertResponse[]> {
+  const token = localStorage.getItem("token") || "";
+  const res = await fetch(`${BASE_URL}/alerts`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to load alerts");
+  }
+
+  return res.json();
+}
+
+export async function createAlert(data: AlertCreate): Promise<AlertResponse> {
+  const token = localStorage.getItem("token") || "";
+  const res = await fetch(`${BASE_URL}/alerts`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to create alert");
+  }
+
+  return res.json();
+}
+
+export async function deleteAlert(alertId: number): Promise<void> {
+  const token = localStorage.getItem("token") || "";
+  const res = await fetch(`${BASE_URL}/alerts/${alertId}`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to delete alert");
+  }
+}
+
+export async function getForumCategories(): Promise<ForumCategory[]> {
+  const { data } = await apiClient.get("/forum/categories");
+  return data;
+}
+
+export async function getForumThreads(categorySlug: string, page = 1, pageSize = 12): Promise<ForumThreadPage> {
+  const { data } = await apiClient.get(`/forum/categories/${categorySlug}/threads`, {
+    params: { page, page_size: pageSize },
+  });
+  return data;
+}
+
+export async function getForumThread(threadId: number | string): Promise<ForumThreadDetail> {
+  const { data } = await apiClient.get(`/forum/threads/${threadId}`);
+  return data;
+}
+
+export async function createForumThread(payload: {
+  category_id: number;
+  title: string;
+  body: string;
+}): Promise<ForumThreadDetail> {
+  const { data } = await apiClient.post("/forum/threads", payload);
+  return data;
+}
+
+export async function createForumPost(payload: {
+  thread_id: number;
+  body: string;
+}): Promise<ForumPost> {
+  const { data } = await apiClient.post("/forum/posts", payload);
+  return data;
+}
+
+export async function toggleForumUpvote(payload: {
+  thread_id?: number | null;
+  post_id?: number | null;
+}): Promise<ForumUpvoteResponse> {
+  const { data } = await apiClient.post("/forum/upvote", payload);
+  return data;
+}
+
+export async function reportForumContent(payload: {
+  thread_id?: number | null;
+  post_id?: number | null;
+  reason: string;
+}): Promise<{ message: string }> {
+  const { data } = await apiClient.post("/forum/report", payload);
+  return data;
+}
+
+export async function getForumModerationQueue(): Promise<ForumModerationItem[]> {
+  const { data } = await apiClient.get("/forum/moderation-queue");
+  return data;
+}
+
+export async function lockForumThread(threadId: number | string): Promise<{ message: string }> {
+  const { data } = await apiClient.patch(`/forum/threads/${threadId}/lock`);
+  return data;
+}
+
+export async function deleteForumThread(threadId: number | string): Promise<{ message: string }> {
+  const { data } = await apiClient.delete(`/forum/threads/${threadId}`);
+  return data;
+}
+
+export async function deleteForumPost(postId: number | string): Promise<{ message: string }> {
+  const { data } = await apiClient.delete(`/forum/posts/${postId}`);
+  return data;
+}
+
+export async function resolveForumReport(reportId: number | string): Promise<{ message: string }> {
+  const { data } = await apiClient.patch(`/forum/reports/${reportId}/resolve`);
+  return data;
 }
 
 /**
@@ -535,6 +868,212 @@ export async function refreshResumeATS(token: string, resumeId: number | string,
   return res.json();
 }
 
+export async function extractJDFields(token: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${BASE_URL}/jobs/extract-jd`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to extract JD fields");
+  }
+  return res.json();
+}
+
+export async function getConversations(token: string) {
+  const res = await fetch(`${BASE_URL}/conversations/`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to load conversations");
+  }
+  return res.json();
+}
+
+export async function startConversation(token: string, participantId: number | string) {
+  const res = await fetch(`${BASE_URL}/conversations/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ participant_id: Number(participantId) }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to start conversation");
+  }
+  return res.json();
+}
+
+export async function getConversationMessages(token: string, conversationId: number | string) {
+  const res = await fetch(`${BASE_URL}/conversations/${conversationId}/messages`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to load messages");
+  }
+  return res.json();
+}
+
+export async function sendConversationMessage(
+  token: string,
+  conversationId: number | string,
+  payload: { receiver_id: number | string; message: string },
+) {
+  const res = await fetch(`${BASE_URL}/conversations/${conversationId}/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      receiver_id: Number(payload.receiver_id),
+      message: payload.message,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to send message");
+  }
+  return res.json();
+}
+
+export async function markMessageAsRead(token: string, messageId: number | string) {
+  const res = await fetch(`${BASE_URL}/messages/${messageId}/read`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to mark message as read");
+  }
+  return res.json();
+}
+
+export async function createAdminTest(
+  token: string,
+  payload: {
+    title: string;
+    description?: string;
+    due_at?: string;
+    questions: Array<{ id: string; question: string; expected_keywords: string[]; max_points: number }>;
+  },
+) {
+  const res = await fetch(`${BASE_URL}/tests/admin`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to create admin test");
+  }
+  return res.json();
+}
+
+export async function listAdminTests(token: string) {
+  const res = await fetch(`${BASE_URL}/tests/admin`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to load admin tests");
+  }
+  return res.json();
+}
+
+export async function listAdminTestSubmissions(token: string) {
+  const res = await fetch(`${BASE_URL}/tests/admin/submissions`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to load test submissions");
+  }
+  return res.json();
+}
+
+export async function listCandidateTests(token: string) {
+  const res = await fetch(`${BASE_URL}/tests/candidate`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to load candidate tests");
+  }
+  return res.json();
+}
+
+export async function submitCandidateTest(
+  token: string,
+  testId: number | string,
+  answers: Record<string, string>,
+) {
+  const res = await fetch(`${BASE_URL}/tests/candidate/${testId}/submit`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ answers }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to submit test");
+  }
+  return res.json();
+}
+
+export type AssistantHistoryItem = {
+  role: "user" | "assistant";
+  text: string;
+};
+
+export async function askAssistant(token: string, message: string, history: AssistantHistoryItem[] = []) {
+  const res = await fetch(`${BASE_URL}/assistant/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ message, history }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Assistant is unavailable");
+  }
+
+  return res.json();
+}
+
 export async function getRecruiterVerificationStatus(token: string) {
   const res = await fetch(`${BASE_URL}/trust/me/status`, {
     method: "GET",
@@ -634,6 +1173,35 @@ export async function getCompanyTrust(token: string, recruiterId: number | strin
   return res.json();
 }
 
+export async function getEmployerBadge(recruiterId: number): Promise<EmployerBadgeResponse> {
+  const res = await fetch(`${BASE_URL}/trust/employer-badge/${recruiterId}`, {
+    method: "GET",
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to fetch employer badge");
+  }
+
+  return res.json();
+}
+
+export async function getAdminVerificationProfile(token: string, recruiterId: number | string): Promise<RecruiterVerificationProfileResponse> {
+  const res = await fetch(`${BASE_URL}/trust/admin/verification-profile/${recruiterId}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to load verification profile");
+  }
+
+  return res.json();
+}
+
 export async function getCandidateProfileByUser(token: string, userId: number | string) {
   const res = await fetch(`${BASE_URL}/profile/by-user/${userId}`, {
     method: "GET",
@@ -688,6 +1256,24 @@ export async function reviewVerificationSubmission(
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.detail || "Failed to update verification review");
+  }
+
+  return res.json();
+}
+
+export async function getAlertOptions(): Promise<AlertOptionsResponse> {
+  const token = localStorage.getItem("token") || "";
+  const res = await fetch(`${BASE_URL}/alerts/options`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to load alert options");
   }
 
   return res.json();

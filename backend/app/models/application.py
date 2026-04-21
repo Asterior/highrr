@@ -12,9 +12,15 @@ class Application(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
+    candidate_profile_id = Column(Integer, ForeignKey("candidate_profiles.id"), nullable=True, index=True)
 
     candidate_name = Column(String, nullable=False)
     candidate_email = Column(String, nullable=False)
+    candidate_location = Column(String, nullable=True)
+    current_role = Column(String, nullable=True)
+    current_company = Column(String, nullable=True)
+    highest_qualification = Column(String, nullable=True)
+    profile_completion_percentage = Column(Integer, nullable=True)
 
     status = Column(String, default="applied", index=True)
     score = Column(Integer, default=0)

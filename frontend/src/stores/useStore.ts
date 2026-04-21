@@ -164,7 +164,12 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  updateProfile: (data) => set((s) => ({ user: { ...s.user, ...data } })),
+  updateProfile: (data) =>
+    set((s) => {
+      const updatedUser = { ...s.user, ...data };
+      localStorage.setItem("auth_user", JSON.stringify(updatedUser));
+      return { user: updatedUser };
+    }),
 
   jobs: [],
   
@@ -173,12 +178,9 @@ export const useStore = create<AppState>((set, get) => ({
    */
   loadJobs: async () => {
     try {
-      if (get().jobs.length > 0) {
-        return;
-      }
       set({ isLoading: true });
       const token = localStorage.getItem("token");
-      const jobsData = await getJobs(token, 0, 100);
+      const jobsData = await getJobs(token, 0, 100, undefined);
       set({ jobs: jobsData.map(mapJobFromApi) });
     } catch (error) {
       console.error("Failed to load jobs:", error);

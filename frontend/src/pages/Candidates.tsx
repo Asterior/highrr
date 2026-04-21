@@ -195,7 +195,7 @@ const Candidates = () => {
                   Reject
                 </button>
               )}
-              <Link to="/messages" className="px-3 py-2 bg-muted text-muted-foreground rounded-xl text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors flex items-center">
+              <Link to={`/messages?candidateId=${c.user_id}`} className="px-3 py-2 bg-muted text-muted-foreground rounded-xl text-sm font-medium hover:bg-primary hover:text-primary-foreground transition-colors flex items-center">
                 <MessageSquare className="w-4 h-4" />
               </Link>
             </div>
