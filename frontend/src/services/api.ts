@@ -849,6 +849,21 @@ export async function listResumes(token: string) {
   return res.json();
 }
 
+export async function deleteResume(token: string, resumeId: number) {
+  const res = await fetch(`${BASE_URL}/profile/upload/resume/${resumeId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to delete resume");
+  }
+  return res.status === 204 ? { success: true } : res.json();
+}
+
 export async function refreshResumeATS(token: string, resumeId: number | string, jobId?: number | string) {
   const params = new URLSearchParams();
   if (jobId !== undefined) params.append("job_id", String(jobId));

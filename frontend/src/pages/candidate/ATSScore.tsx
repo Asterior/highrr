@@ -135,6 +135,18 @@ const ATSScore = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId, loading]);
 
+  const handleDeleteResume = async (resumeId: number) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      await deleteResume(token, resumeId);
+      toast({ title: "Resume deleted", description: "Your resume has been removed.", variant: "default" });
+      await loadStoredResumes();
+    } catch (error) {
+      toast({ title: "Failed to delete resume", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    }
+  };
+
   const handleUploadResume = async () => {
     if (!resumeFile) {
       toast({ title: "Select a resume", description: "Upload a PDF or DOC file first.", variant: "destructive" });
@@ -157,7 +169,7 @@ const ATSScore = () => {
     }
   };
 
-  const handleRunLiveScan = async () => {
+  const handleDeleteResume = async (resumeId: number) => {\n    const token = localStorage.getItem(\"token\");\n    if (!token) return;\n    try {\n      await deleteResume(token, resumeId);\n      toast({ title: \"Resume deleted\", description: \"Your resume has been removed.\", variant: \"default\" });\n      await loadStoredResumes();\n    } catch (error) {\n      toast({ title: \"Failed to delete resume\", description: error instanceof Error ? error.message : \"Unknown error\", variant: \"destructive\" });\n    }\n  };\n\n  const handleRunLiveScan = async () => {
     const token = localStorage.getItem("token");
     if (!token) return;
 
