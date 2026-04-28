@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Text, func
 
 from app.db.base import Base
 
@@ -13,5 +13,5 @@ class Message(Base):
     sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     receiver_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     message = Column(Text, nullable=False)
-    sent_at = Column(DateTime, default=datetime.utcnow)
+    sent_at = Column(DateTime, default=func.now(), server_default=func.now())
     is_read = Column(Boolean, default=False)

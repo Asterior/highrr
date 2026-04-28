@@ -78,11 +78,13 @@ const CandidateJobs = () => {
     if (!token || filtered.length === 0) return;
 
     let cancelled = false;
-
-    const loadScores = async () => {
+    const timeoutId = setTimeout(async () => {
       const updates: ScoreMap = {};
+      const jobsToFetch = filtered.filter((job) => !(job.id in matchScores));
+      if (jobsToFetch.length === 0) return;
+
       await Promise.all(
-        filtered.map(async (job) => {
+        jobsToFetch.map(async (job) => {
           try {
             const score = await getJobMatchScore(job.id, token);
             updates[job.id] = score;
@@ -94,16 +96,13 @@ const CandidateJobs = () => {
       if (!cancelled) {
         setMatchScores((prev) => ({ ...prev, ...updates }));
       }
-    };
-
-    loadScores().catch(() => {
-      // Non-blocking: meter gracefully degrades per card.
-    });
+    }, 300);
 
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
     };
-  }, [jobs, search, deptFilter, typeFilter]);
+  }, [filtered, matchScores]);
 
   useEffect(() => {
     const recruiterIds = Array.from(new Set(filtered.map((job) => Number(job.created_by)).filter(Boolean)));

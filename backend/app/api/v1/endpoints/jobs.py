@@ -305,7 +305,11 @@ def get_job_match_score(job_id: int, db: Session = Depends(get_db), current_user
         "experience_required": job.experience_required,
         "location": job.location,
         "salary": job.salary,
+        "salary_min": getattr(job, "salary_min", None),
+        "salary_max": getattr(job, "salary_max", None),
         "is_remote": getattr(job, "is_remote", False),
+        "city": getattr(job, "city", None),
+        "state": getattr(job, "state", None),
     }
     return calculate_match_score(candidate_payload, job_payload)
 
