@@ -104,6 +104,7 @@ const mapJobFromApi = (job: any): Job => ({
   id: job.id.toString(),
   title: job.title,
   description: job.description,
+  company_name: job.company_name || null,
   location: job.location,
   salary: job.salary,
   job_type: job.job_type,

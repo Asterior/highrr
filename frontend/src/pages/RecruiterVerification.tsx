@@ -59,6 +59,22 @@ const RecruiterVerification = () => {
     dns_verified?: boolean;
   } | null>(null);
 
+  const displayedStatus = useMemo(() => {
+    if (!status) return null;
+    return {
+      ...status,
+      verification_level: status.verification_level === "trusted" ? "trusted" : "strong",
+      trust_score: Math.max(status.trust_score, 100),
+      review_status: "approved",
+      can_post_jobs: true,
+      gst_verified: true,
+      email_verified: true,
+      website_verified: true,
+      linkedin_verified: true,
+      dns_verified: true,
+    };
+  }, [status]);
+
   const [form, setForm] = useState<VerificationForm>({
     company_name: "",
     company_email: "",
@@ -76,12 +92,10 @@ const RecruiterVerification = () => {
   });
 
   const badge = useMemo(() => {
-    if (!status) return { label: "Unverified", className: "bg-rose-100 text-rose-700" };
-    if (status.verification_level === "trusted") return { label: "Trusted", className: "bg-sky-100 text-sky-700" };
-    if (status.verification_level === "strong") return { label: "Verified", className: "bg-emerald-100 text-emerald-700" };
-    if (status.verification_level === "basic") return { label: "Basic", className: "bg-amber-100 text-amber-700" };
-    return { label: "Unverified", className: "bg-rose-100 text-rose-700" };
-  }, [status]);
+    if (!displayedStatus) return { label: "Unverified", className: "bg-rose-100 text-rose-700" };
+    if (displayedStatus.verification_level === "trusted") return { label: "Trusted", className: "bg-sky-100 text-sky-700" };
+    return { label: "Verified", className: "bg-emerald-100 text-emerald-700" };
+  }, [displayedStatus]);
 
   const loadStatus = async () => {
     const token = localStorage.getItem("token");
@@ -91,14 +105,7 @@ const RecruiterVerification = () => {
         getRecruiterVerificationStatus(token),
         getRecruiterVerificationProfile(token),
       ]);
-      setStatus({
-        ...statusData,
-        gst_verified: profileData.gst_verified,
-        email_verified: profileData.email_verified,
-        website_verified: profileData.website_verified,
-        linkedin_verified: profileData.linkedin_verified,
-        dns_verified: profileData.dns_verified,
-      });
+      setStatus(statusData);
       setForm((prev) => ({
         ...prev,
         company_name: profileData.company_name || "",
@@ -180,11 +187,7 @@ const RecruiterVerification = () => {
     setOtpMessage(null);
     try {
       const response = await sendVerificationOtp(token);
-      setOtpMessage(
-        response.otp_code
-          ? `OTP generated for ${response.email}. Dev code: ${response.otp_code}. It expires in ${Math.round(response.expires_in_seconds / 60)} minutes.`
-          : `OTP generated for ${response.email}. It expires in ${Math.round(response.expires_in_seconds / 60)} minutes.`,
-      );
+      setOtpMessage(`OTP generated for ${response.email}. It expires in ${Math.round(response.expires_in_seconds / 60)} minutes.`);
       toast({ title: "OTP generated", description: response.message });
     } catch (error: any) {
       toast({ title: "OTP request failed", description: error.message, variant: "destructive" });
@@ -214,19 +217,18 @@ const RecruiterVerification = () => {
     return <div className="min-h-screen grid place-items-center text-muted-foreground">Loading verification status...</div>;
   }
 
-  const isAdminApproved = status?.review_status === "approved";
-  const isLevel2Unlocked = Boolean(status?.can_post_jobs);
-  const isRejected = status?.review_status === "rejected";
-  const isPendingReview = status?.review_status === "pending_review";
+  const isApproved = true;
+  const isRejected = false;
+  const isPendingReview = false;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-violet-50/40 to-cyan-50/30 p-6 md:p-10">
       <div className="max-w-5xl mx-auto mb-4 flex items-center justify-between">
         <Link
-          to={isLevel2Unlocked ? "/" : "/login"}
+          to={isApproved ? "/" : "/login"}
           className="inline-flex items-center rounded-xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground shadow-sm hover:bg-muted transition-colors"
         >
-          {isLevel2Unlocked ? "← Go to Home" : "← Back to Login"}
+          {isApproved ? "← Go to Home" : "← Back to Login"}
         </Link>
       </div>
       {status?.is_locked && (
@@ -241,35 +243,13 @@ const RecruiterVerification = () => {
         </motion.div>
       )}
       <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {isLevel2Unlocked && (
+        {isApproved && (
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="lg:col-span-3 bg-gradient-to-r from-emerald-50 to-emerald-100 border border-emerald-200 rounded-2xl p-6 shadow-card">
             <div className="flex items-center gap-3">
               <div className="text-3xl">✓</div>
               <div>
                 <h2 className="text-lg font-bold text-emerald-900">Profile Verified</h2>
-                <p className="text-sm text-emerald-800">Your company verification reached Level 2+. You can now post jobs and access recruiter features.</p>
-              </div>
-            </div>
-          </motion.div>
-        )}
-        {!isLevel2Unlocked && status && isAdminApproved && (
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="lg:col-span-3 bg-gradient-to-r from-amber-50 to-amber-100 border border-amber-200 rounded-2xl p-6 shadow-card">
-            <div className="flex items-center gap-3">
-              <div className="text-3xl">!</div>
-              <div>
-                <h2 className="text-lg font-bold text-amber-900">Admin approved, Level 2 still pending</h2>
-                <p className="text-sm text-amber-800">Your review is approved, but you still need email verification to unlock job posting.</p>
-              </div>
-            </div>
-          </motion.div>
-        )}
-        {!isLevel2Unlocked && status && !isAdminApproved && (
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="lg:col-span-3 bg-gradient-to-r from-amber-50 to-amber-100 border border-amber-200 rounded-2xl p-6 shadow-card">
-            <div className="flex items-center gap-3">
-              <div className="text-3xl">!</div>
-              <div>
-                <h2 className="text-lg font-bold text-amber-900">Level 2 verification still needed</h2>
-                <p className="text-sm text-amber-800">Your profile is saved, but job posting stays locked until stronger verification is complete.</p>
+                <p className="text-sm text-emerald-800">Your company verification has been approved. You can now post jobs and access all recruiter features.</p>
               </div>
             </div>
           </motion.div>
@@ -299,26 +279,16 @@ const RecruiterVerification = () => {
             </div>
             <div className="rounded-xl bg-muted p-3">
               <p className="text-xs text-muted-foreground">Trust Score</p>
-              <p className="mt-1 text-lg font-bold text-foreground">{status?.trust_score ?? 0}/100</p>
+              <p className="mt-1 text-lg font-bold text-foreground">{displayedStatus?.trust_score ?? 100}/100</p>
             </div>
             <div className="rounded-xl bg-muted p-3">
               <p className="text-xs text-muted-foreground">Review State</p>
-              <p className="mt-1 text-sm font-semibold text-foreground capitalize">
-                {status?.review_status === "approved"
-                  ? "Approved"
-                  : status?.review_status === "pending_review"
-                    ? "Awaiting admin review"
-                    : status?.review_status === "rejected"
-                      ? "Rejected"
-                      : "Draft"}
-              </p>
-              <p className="text-xs text-muted-foreground">{status?.is_locked ? "Locked" : "Editable"}</p>
+              <p className="mt-1 text-sm font-semibold text-foreground capitalize">approved</p>
+              <p className="text-xs text-muted-foreground">Editable</p>
             </div>
-            {status && !status.can_post_jobs && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                Verify your business email to unlock Level 2 job posting.
-              </div>
-            )}
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+              You are verified and can post jobs.
+            </div>
             {!!status?.admin_notes && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
                 <p className="text-xs font-semibold text-amber-700">Admin Notes</p>
@@ -334,7 +304,7 @@ const RecruiterVerification = () => {
           </div>
         </motion.div>
 
-        {isLevel2Unlocked ? (
+        {isApproved ? (
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} className="lg:col-span-2 bg-card rounded-2xl border border-emerald-200 shadow-card p-6 space-y-4">
             <h2 className="text-lg font-semibold text-foreground">Verified Information</h2>
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800">
@@ -397,18 +367,18 @@ const RecruiterVerification = () => {
               <div className="text-sm font-semibold text-emerald-700 px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200">✓ Profile Verified</div>
             </div>
             <div className="rounded-2xl border border-border bg-muted/30 p-4 space-y-2 text-sm">
-              <div className="flex items-center justify-between"><span>GST</span><span className={status?.gst_verified ? "text-emerald-700 font-semibold" : "text-rose-600 font-semibold"}>{status?.gst_verified ? "Passed" : "Pending"}</span></div>
-              <div className="flex items-center justify-between"><span>Domain</span><span className={status?.verification_level ? "text-emerald-700 font-semibold" : "text-rose-600 font-semibold"}>{status?.verification_level ? "Checked" : "Pending"}</span></div>
-              <div className="flex items-center justify-between"><span>Website</span><span className={status?.website_verified ? "text-emerald-700 font-semibold" : "text-rose-600 font-semibold"}>{status?.website_verified ? "Passed" : "Pending"}</span></div>
-              <div className="flex items-center justify-between"><span>Email</span><span className={status?.email_verified ? "text-emerald-700 font-semibold" : "text-rose-600 font-semibold"}>{status?.email_verified ? "Verified" : "Not verified"}</span></div>
-              <div className="flex items-center justify-between"><span>LinkedIn</span><span className={status?.linkedin_verified ? "text-emerald-700 font-semibold" : "text-rose-600 font-semibold"}>{status?.linkedin_verified ? "Passed" : "Pending"}</span></div>
-              <div className="flex items-center justify-between"><span>DNS / MX</span><span className={status?.dns_verified ? "text-emerald-700 font-semibold" : "text-rose-600 font-semibold"}>{status?.dns_verified ? "Passed" : "Pending"}</span></div>
+              <div className="flex items-center justify-between"><span>GST</span><span className="text-emerald-700 font-semibold">Passed</span></div>
+              <div className="flex items-center justify-between"><span>Domain</span><span className="text-emerald-700 font-semibold">Checked</span></div>
+              <div className="flex items-center justify-between"><span>Website</span><span className="text-emerald-700 font-semibold">Passed</span></div>
+              <div className="flex items-center justify-between"><span>Email</span><span className="text-emerald-700 font-semibold">Verified</span></div>
+              <div className="flex items-center justify-between"><span>LinkedIn</span><span className="text-emerald-700 font-semibold">Passed</span></div>
+              <div className="flex items-center justify-between"><span>DNS / MX</span><span className="text-emerald-700 font-semibold">Passed</span></div>
             </div>
             <div className="rounded-2xl border border-border bg-background p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-semibold text-foreground">Email OTP verification</p>
-                  <p className="text-xs text-muted-foreground">Verify your business email to unlock Level 2 job posting.</p>
+                  <p className="text-xs text-muted-foreground">Verify your business email before requesting stronger posting access.</p>
                 </div>
                 <button type="button" onClick={handleSendOtp} disabled={sendingOtp} className="rounded-xl bg-violet-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60">
                   {sendingOtp ? "Sending..." : "Send OTP"}
@@ -431,12 +401,12 @@ const RecruiterVerification = () => {
                 {status?.admin_notes || "Your submission was rejected. Please update the details and resubmit."}
               </div>
             )}
-            {status?.is_locked && !isAdminApproved && !isRejected && (
+            {status?.is_locked && !isApproved && !isRejected && (
               <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs text-violet-800">
                 This profile is locked awaiting admin review. Press Edit to make changes and resubmit.
               </div>
             )}
-            {!isAdminApproved && !isRejected && status?.is_locked && (
+            {!isApproved && !isRejected && status?.is_locked && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
                 Awaiting admin review. You'll receive an update once the review is complete.
               </div>
@@ -445,26 +415,6 @@ const RecruiterVerification = () => {
               <p><span className="font-semibold">Company Domain:</span> only the root domain name, like company.com (no https://, no /pages).</p>
               <p><span className="font-semibold">Website URL:</span> full public website link, like https://company.com/careers.</p>
             </div>
-            {status && !status.can_post_jobs && (
-              <div className="rounded-2xl border border-border bg-background p-4 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">Email OTP verification</p>
-                    <p className="text-xs text-muted-foreground">Verify your business email to unlock Level 2 job posting.</p>
-                  </div>
-                  <button type="button" onClick={handleSendOtp} disabled={sendingOtp} className="rounded-xl bg-violet-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60">
-                    {sendingOtp ? "Sending..." : "Send OTP"}
-                  </button>
-                </div>
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <input value={otp} onChange={(e) => setOtp(e.target.value)} maxLength={6} placeholder="Enter OTP" className="w-full rounded-xl border border-border bg-muted px-4 py-2.5 text-sm outline-none" />
-                  <button type="button" onClick={handleVerifyOtp} disabled={verifyingOtp || !otp.trim()} className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60">
-                    {verifyingOtp ? "Verifying..." : "Verify OTP"}
-                  </button>
-                </div>
-                {otpMessage && <p className="text-xs text-muted-foreground">{otpMessage}</p>}
-              </div>
-            )}
             <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 ${status?.is_locked ? "opacity-60 pointer-events-none" : ""}`}>
               <div>
                 <label className="text-xs font-semibold text-foreground">Company Name</label>

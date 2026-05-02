@@ -43,6 +43,7 @@ class JobResponse(BaseModel):
     id: int
     title: str
     description: str
+    company_name: str | None = None
     location: str | None
     salary: str | None
     job_type: str

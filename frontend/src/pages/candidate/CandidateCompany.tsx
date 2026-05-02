@@ -36,10 +36,13 @@ const CandidateCompany = () => {
         setLoading(true);
         const token = localStorage.getItem("token");
         if (!token) throw new Error("Not authenticated");
-        await loadJobs();
-        const data = await getCompanyTrust(token, recruiterId);
-        setCompany(data);
-        await refreshEmployerBadge();
+        const [companyData, jobsLoaded, badgeData] = await Promise.all([
+          getCompanyTrust(token, recruiterId),
+          loadJobs(),
+          getEmployerBadge(Number(recruiterId)),
+        ]);
+        setCompany(companyData);
+        setEmployerBadge(badgeData);
       } catch (error: any) {
         toast({ title: "Company profile unavailable", description: error.message, variant: "destructive" });
       } finally {

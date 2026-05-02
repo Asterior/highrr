@@ -219,7 +219,7 @@ def update_thread(thread_id: int, user_id: int, is_admin: bool, title: str | Non
     thread = db.query(ForumThread).filter(ForumThread.id == thread_id).first()
     if not thread:
         raise ValueError("Thread not found")
-    if thread.author_id != user_id:
+    if not is_admin and thread.author_id != user_id:
         raise ValueError("Not authorized")
 
     if title is not None:

@@ -193,9 +193,9 @@ const Jobs = () => {
           {filtered.map((job, i) => (
             <motion.div key={job.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ delay: i * 0.05 }} className="bg-card rounded-2xl border border-border p-6 shadow-card hover-lift flex items-center justify-between">
               <div className="flex-1">
-                {badgesByRecruiter[Number(job.created_by)] && (
-                  <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>Company {job.created_by}</span>
+                <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>{job.company_name || `Company ${job.created_by}`}</span>
+                  {badgesByRecruiter[Number(job.created_by)] && (
                     <VerificationBadge
                       badgeLevel={badgesByRecruiter[Number(job.created_by)].badge_level}
                       checks={{
@@ -204,8 +204,8 @@ const Jobs = () => {
                         linkedin: badgesByRecruiter[Number(job.created_by)].linkedin_verified,
                       }}
                     />
-                  </div>
-                )}
+                  )}
+                </div>
                 <div className="flex items-center gap-3">
                   <h3 className="font-semibold text-foreground">{job.title}</h3>
                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${job.recruiter_status === "Active" ? "bg-emerald-50 text-emerald-600" : job.recruiter_status === "Deadline Passed" ? "bg-amber-50 text-amber-700" : "bg-muted text-muted-foreground"}`}>{job.recruiter_status || job.status}</span>

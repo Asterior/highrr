@@ -21,13 +21,13 @@ from app.core.security import (
 from app.db.deps import get_db
 from app.models.company_verification import CompanyVerification
 from app.models.user import User
-from app.services.employer_verification import run_verification
 from app.schemas.auth import SendOtpResponse, VerifyOtpRequest, VerifyOtpResponse
 from app.schemas.user import UserCreate, UserResponse
+from app.services.employer_verification import run_verification
 
 router = APIRouter()
 LOGGER = logging.getLogger(__name__)
-FREE_EMAIL_DOMAINS = {"yahoo.com", "outlook.com", "hotmail.com", "proton.me", "protonmail.com"}
+FREE_EMAIL_DOMAINS = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "proton.me", "protonmail.com"}
 _OTP_STORE: dict[int, tuple[str, datetime]] = {}
 _OTP_EXPIRY_MINUTES = 10
 
@@ -115,12 +115,10 @@ def send_otp(current_user=Depends(get_current_user), db: Session = Depends(get_d
     otp = _generate_otp()
     _OTP_STORE[current_user.id] = (otp, datetime.utcnow() + timedelta(minutes=_OTP_EXPIRY_MINUTES))
     LOGGER.info("Generated OTP for recruiter_id=%s company_email=%s", current_user.id, company.company_email)
-    environment = os.getenv("ENVIRONMENT", "development").strip().lower()
     return SendOtpResponse(
         email=company.company_email,
         expires_in_seconds=_OTP_EXPIRY_MINUTES * 60,
         message="OTP generated and stored for verification",
-        otp_code=otp if environment == "development" else None,
     )
 
 
@@ -155,7 +153,6 @@ def verify_otp(
         linkedin_url=company.linkedin_company_url or "",
         db=db,
     )
-    db.refresh(company)
     _OTP_STORE.pop(current_user.id, None)
 
     return VerifyOtpResponse(

@@ -241,7 +241,6 @@ export interface SendOtpResponse {
   email: string;
   expires_in_seconds: number;
   message: string;
-  otp_code?: string | null;
 }
 
 export interface VerifyOtpResponse {

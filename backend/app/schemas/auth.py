@@ -5,7 +5,6 @@ class SendOtpResponse(BaseModel):
     email: EmailStr
     expires_in_seconds: int
     message: str
-    otp_code: str | None = None
 
 
 class VerifyOtpRequest(BaseModel):

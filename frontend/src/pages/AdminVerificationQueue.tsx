@@ -120,11 +120,9 @@ const AdminVerificationQueue = () => {
 
   const stats = useMemo(() => ({
     total: queue.length,
-    approved: queue.filter((item) => item.review_status === "approved").length,
-    pending: queue.filter((item) => item.review_status === "pending_review").length,
-    rejected: queue.filter((item) => item.review_status === "rejected").length,
-    level2plus: queue.filter((item) => item.verification_level === "strong" || item.verification_level === "trusted").length,
-    avgTrust: queue.length ? Math.round(queue.reduce((sum, item) => sum + Number(item.trust_score || 0), 0) / queue.length) : 0,
+    verified: queue.filter((item) => item.verification_level === "strong" || item.verification_level === "trusted").length,
+    basic: queue.filter((item) => item.verification_level === "basic").length,
+    flagged: queue.filter((item) => item.reports_count > 0 || item.trust_score < 55).length,
   }), [queue]);
 
   if (user.role !== "admin") {
@@ -163,18 +161,15 @@ const AdminVerificationQueue = () => {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               { label: "Total", value: stats.total },
-              { label: "Approved", value: stats.approved },
-              { label: "Pending", value: stats.pending },
-              { label: "Level 2+", value: stats.level2plus },
+              { label: "Verified", value: stats.verified },
+              { label: "Basic", value: stats.basic },
+              { label: "Flagged", value: stats.flagged },
             ].map((stat) => (
               <div key={stat.label} className="rounded-2xl border border-border bg-card p-4 text-center shadow-card">
                 <div className="text-2xl font-bold text-foreground">{stat.value}</div>
                 <div className="text-xs text-muted-foreground">{stat.label}</div>
               </div>
             ))}
-          </div>
-          <div className="mt-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground shadow-card">
-            Average trust score: <span className="font-semibold text-foreground">{stats.avgTrust}/100</span> · Rejected: <span className="font-semibold text-foreground">{stats.rejected}</span>
           </div>
         </div>
       </div>

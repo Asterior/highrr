@@ -18,7 +18,7 @@ const columnDefs: { id: PipelineStatus; title: string }[] = [
 ];
 
 const Pipeline = () => {
-  const { applications, updateApplicationStatus, bulkUpdateStatus, jobs, loadJobs, loadApplications } = useStore();
+  const { applications, updateApplicationStatus, bulkUpdateStatus, jobs, loadJobs, loadApplications, user } = useStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const jobFilter = searchParams.get("job") || "all";
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -37,7 +37,11 @@ const Pipeline = () => {
     loadData();
   }, [loadJobs, loadApplications]);
 
-  const filteredApps = jobFilter === "all" ? applications : applications.filter((a) => a.job_id === jobFilter);
+  const recruiterJobIds = user.role === "recruiter" ? jobs.filter((job) => job.created_by === user.id).map((job) => job.id) : [];
+  const scopedApps = user.role === "recruiter"
+    ? applications.filter((application) => recruiterJobIds.includes(application.job_id))
+    : applications;
+  const filteredApps = jobFilter === "all" ? scopedApps : scopedApps.filter((a) => a.job_id === jobFilter);
 
   const columns = columnDefs.map((col) => ({
     ...col,

@@ -57,7 +57,7 @@ const ForumThreadPage = () => {
     setThread((current) => (current ? updater(current) : current));
   };
 
-  const canManageThread = Boolean(thread && thread.author_id === user.id);
+  const canManageThread = Boolean(thread && (user.role === "admin" || thread.author_id === user.id));
   const canEditPost = (postAuthorId: number) => postAuthorId === user.id;
   const canDeletePost = (postAuthorId: number) => user.role === "admin" || postAuthorId === user.id;
 

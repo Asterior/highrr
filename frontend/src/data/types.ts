@@ -4,6 +4,7 @@ export interface Job {
   id: string;
   title: string;
   description: string;
+  company_name?: string | null;
   location: string;
   salary: string;
   job_type: "full-time" | "intern" | "contract";

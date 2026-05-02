@@ -65,11 +65,13 @@ def _build_job_response(job: Job, *, current_user, applications: list[Applicatio
         candidate_status = "Closed"
 
     level, score = _verification_for_recruiter(db, job.created_by)
+    company = db.query(CompanyVerification).filter(CompanyVerification.recruiter_id == job.created_by).first()
 
     return {
         "id": job.id,
         "title": job.title,
         "description": job.description,
+        "company_name": company.company_name if company else None,
         "location": job.location,
         "salary": job.salary,
         "job_type": job.job_type,

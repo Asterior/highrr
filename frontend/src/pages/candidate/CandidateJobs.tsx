@@ -214,9 +214,9 @@ const CandidateJobs = () => {
             <motion.div key={job.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="bg-card rounded-2xl border border-border p-6 shadow-card hover-lift">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  {badgesByRecruiter[Number(job.created_by)] ? (
-                    <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>Company {job.created_by}</span>
+                  <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{job.company_name || `Company ${job.created_by}`}</span>
+                    {badgesByRecruiter[Number(job.created_by)] ? (
                       <VerificationBadge
                         badgeLevel={badgesByRecruiter[Number(job.created_by)].badge_level}
                         checks={{
@@ -230,10 +230,7 @@ const CandidateJobs = () => {
                         onRefresh={() => refreshRecruiterBadge(Number(job.created_by))}
                         refreshing={refreshingRecruiterId === Number(job.created_by)}
                       />
-                    </div>
-                  ) : (
-                    <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>Company {job.created_by}</span>
+                    ) : (
                       <button
                         onClick={() => refreshRecruiterBadge(Number(job.created_by))}
                         disabled={refreshingRecruiterId === Number(job.created_by)}
@@ -242,8 +239,8 @@ const CandidateJobs = () => {
                       >
                         <RefreshCcw className="w-3.5 h-3.5" /> Recheck
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                   <div className="flex items-center gap-3">
                     <h3 className="font-semibold text-foreground">{job.title}</h3>
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-secondary text-accent-foreground">{job.job_type}</span>

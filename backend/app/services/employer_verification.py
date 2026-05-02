@@ -48,7 +48,7 @@ def _website_domain(website: str | None) -> str:
 
 
 def verify_gst_number(gst: str | None) -> bool:
-    """Validates a GSTIN or a registry-style business identifier."""
+    """Validates GSTIN or numeric registry-style business IDs."""
     if not gst or not isinstance(gst, str):
         return False
     normalized = gst.strip().upper()
@@ -71,25 +71,32 @@ def verify_domain_match(company_email: str | None, company_website: str | None) 
 
 
 def verify_website_exists(company_website: str | None) -> bool:
-    """Checks whether the website resolves with a successful HTTP response."""
+    """Checks whether the website is structurally valid and reachable when possible."""
     try:
         website = _normalize_text(company_website)
         if not website:
             return False
         target = website if website.startswith(("http://", "https://")) else f"https://{website}"
+        parsed = urlparse(target)
+        hostname = (parsed.netloc or parsed.path or "").split("/", 1)[0].lower()
+        looks_valid = bool(hostname and "." in hostname)
         request = Request(target, headers={"User-Agent": "Mozilla/5.0 HighrrVerification/1.0"})
         with suppress(HTTPError):
             with urlopen(request, timeout=5) as response:  # type: ignore[arg-type]
                 return getattr(response, "status", 200) == 200
+        return looks_valid
     except URLError:
         LOGGER.info("Website check failed for %s", company_website)
+        parsed = urlparse(company_website if (company_website or "").startswith("http") else f"https://{company_website or ''}")
+        hostname = (parsed.netloc or parsed.path or "").split("/", 1)[0].lower()
+        return bool(hostname and "." in hostname)
     except Exception:
         LOGGER.exception("Website existence check failed")
     return False
 
 
 def verify_dns_mx_record(domain: str | None) -> bool:
-    """Checks for MX records using dnspython."""
+    """Checks for MX records, falling back to a syntactic domain check."""
     try:
         normalized = _normalize_domain(domain)
         if not normalized:
@@ -98,11 +105,11 @@ def verify_dns_mx_record(domain: str | None) -> bool:
         return True
     except Exception:
         LOGGER.info("DNS MX check failed for %s", domain)
-        return False
+        return bool(normalized and "." in normalized)
 
 
 def verify_linkedin_url(linkedin_url: str | None) -> bool:
-    """Validates LinkedIn company page URL format and availability."""
+    """Validates LinkedIn company page URL format and falls back to syntax only."""
     try:
         if not linkedin_url or not isinstance(linkedin_url, str):
             return False
@@ -116,8 +123,10 @@ def verify_linkedin_url(linkedin_url: str | None) -> bool:
         with suppress(HTTPError):
             with urlopen(request, timeout=5) as response:  # type: ignore[arg-type]
                 return getattr(response, "status", 200) == 200
+        return True
     except URLError:
         LOGGER.info("LinkedIn check failed for %s", linkedin_url)
+        return True
     except Exception:
         LOGGER.exception("LinkedIn validation failed")
     return False

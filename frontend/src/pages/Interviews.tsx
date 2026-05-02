@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LayoutGrid, List, Plus, Clock, User, Briefcase, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useStore } from "@/stores/useStore";
@@ -9,16 +9,32 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 
 const Interviews = () => {
-  const { interviews, addInterview, deleteInterview, applications } = useStore();
+  const { interviews, addInterview, deleteInterview, applications, jobs, loadJobs, loadApplications, loadInterviews, user } = useStore();
   const [view, setView] = useState<"list" | "grid">("list");
   const [showSchedule, setShowSchedule] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [form, setForm] = useState({ application_id: "", interviewer_name: "", scheduled_at: "", interview_type: "technical" as const, notes: "" });
 
-  const candidatesForInterview = applications.filter((a) => a.status === "interview" || a.status === "shortlisted");
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        await Promise.all([loadJobs(), loadApplications(), loadInterviews(user.role === "recruiter")]);
+      } catch (error) {
+        console.error("Error loading interviews data:", error);
+        toast({ title: "Error", description: "Failed to load interviews", variant: "destructive" });
+      }
+    };
+    loadData();
+  }, [loadJobs, loadApplications, loadInterviews, user.role]);
+
+  const recruiterJobIds = user.role === "recruiter" ? jobs.filter((job) => job.created_by === user.id).map((job) => job.id) : [];
+  const scopedApplications = user.role === "recruiter"
+    ? applications.filter((application) => recruiterJobIds.includes(application.job_id))
+    : applications;
+  const candidatesForInterview = scopedApplications.filter((a) => a.status === "interview" || a.status === "shortlisted");
 
   const handleSchedule = () => {
-    const app = applications.find((a) => a.id === form.application_id);
+    const app = scopedApplications.find((a) => a.id === form.application_id);
     if (!app || !form.scheduled_at) return;
     const job = useStore.getState().jobs.find((j) => j.id === app.job_id);
     addInterview({

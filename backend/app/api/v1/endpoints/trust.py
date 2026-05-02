@@ -58,16 +58,6 @@ def _level_from_score(score: int, kyc_status: str | None = None) -> str:
     return "unverified"
 
 
-def _effective_verification_state(company: CompanyVerification) -> tuple[int, str, bool]:
-    score = int(company.trust_score or 0)
-    if company.email_verified and (company.verification_level or "").lower() not in {"strong", "trusted"}:
-        score += 10
-    score = min(score, 150)
-    level = _level_from_score(score, company.kyc_status)
-    can_post_jobs = level in {"strong", "trusted"} and (company.review_status or "draft") == "approved"
-    return score, level, can_post_jobs
-
-
 def _normalize_domain(value: str | None) -> str:
     if not value:
         return ""
@@ -159,6 +149,24 @@ def _auto_verify_from_profile(
     )
 
 
+def _refresh_verification_snapshot(db: Session, company: CompanyVerification | None) -> None:
+    if not company:
+        return
+    if not company.updated_at:
+        return
+    if company.last_assessed_at and company.updated_at <= company.last_assessed_at:
+        return
+    _auto_verify_from_profile(
+        db=db,
+        recruiter_id=company.recruiter_id,
+        business_registry_id=company.business_registry_id,
+        company_email=company.company_email,
+        website_url=company.website_url,
+        company_domain=company.company_domain,
+        linkedin_company_url=company.linkedin_company_url,
+    )
+
+
 def _upsert_reputation(db: Session, recruiter_id: int) -> RecruiterReputation:
     reputation = db.query(RecruiterReputation).filter(RecruiterReputation.recruiter_id == recruiter_id).first()
     if not reputation:
@@ -224,6 +232,7 @@ def my_verification_status(
         )
 
     company = db.query(CompanyVerification).filter(CompanyVerification.recruiter_id == current_user.id).first()
+    _refresh_verification_snapshot(db, company)
     if not company:
         return RecruiterTrustStatusResponse(
             recruiter_id=current_user.id,
@@ -234,13 +243,11 @@ def my_verification_status(
             is_locked=False,
         )
 
-    effective_score, effective_level, can_post_jobs = _effective_verification_state(company)
-
     return RecruiterTrustStatusResponse(
         recruiter_id=current_user.id,
-        verification_level=effective_level,
-        trust_score=effective_score,
-        can_post_jobs=can_post_jobs,
+        verification_level=company.verification_level,
+        trust_score=company.trust_score,
+        can_post_jobs=company.verification_level in {"strong", "trusted"},
         review_status=company.review_status or "draft",
         is_locked=bool(company.is_locked),
         submitted_at=company.submitted_at,
@@ -257,6 +264,7 @@ def get_my_verification_profile(
         raise HTTPException(status_code=403, detail="Only recruiters/admins can access verification profile")
 
     company = db.query(CompanyVerification).filter(CompanyVerification.recruiter_id == current_user.id).first()
+    _refresh_verification_snapshot(db, company)
     if not company:
         return RecruiterVerificationProfileResponse(
             recruiter_id=current_user.id,
@@ -294,8 +302,6 @@ def get_my_verification_profile(
     pending = _parse_pending_payload(company.pending_payload)
     source = pending if pending and company.review_status in {"pending_review", "rejected"} else None
 
-    effective_score, effective_level, can_post_jobs = _effective_verification_state(company)
-
     return RecruiterVerificationProfileResponse(
         recruiter_id=current_user.id,
         company_name=(source.company_name if source else company.company_name) or "",
@@ -316,9 +322,9 @@ def get_my_verification_profile(
         website_verified=bool(company.website_verified),
         linkedin_verified=bool(company.linkedin_verified),
         dns_verified=bool(company.dns_verified),
-        verification_level=effective_level,
-        trust_score=effective_score,
-        can_post_jobs=can_post_jobs,
+        verification_level=company.verification_level or "unverified",
+        trust_score=company.trust_score or 0,
+        can_post_jobs=(company.verification_level in {"strong", "trusted"}),
         review_status=company.review_status or "draft",
         is_locked=bool(company.is_locked),
         kyc_status=company.kyc_status or "pending",
@@ -410,13 +416,11 @@ def unlock_company_profile(
     db.commit()
     db.refresh(company)
 
-    effective_score, effective_level, can_post_jobs = _effective_verification_state(company)
-
     return RecruiterTrustStatusResponse(
         recruiter_id=current_user.id,
-        verification_level=effective_level,
-        trust_score=effective_score,
-        can_post_jobs=can_post_jobs,
+        verification_level=company.verification_level,
+        trust_score=company.trust_score,
+        can_post_jobs=company.verification_level in {"strong", "trusted"},
         review_status=company.review_status or "draft",
         is_locked=bool(company.is_locked),
         submitted_at=company.submitted_at,
