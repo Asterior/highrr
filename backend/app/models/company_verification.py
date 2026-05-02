@@ -19,6 +19,10 @@ class CompanyVerification(Base):
     verification_level = Column(String, default="basic", index=True)
     trust_score = Column(Integer, default=0, index=True)
 
+    gst_verified = Column(Boolean, default=False)
+    email_verified = Column(Boolean, default=False)
+    website_verified = Column(Boolean, default=False)
+    linkedin_verified = Column(Boolean, default=False)
     domain_verified = Column(Boolean, default=False)
     domain_otp_verified = Column(Boolean, default=False)
     dns_verified = Column(Boolean, default=False)
@@ -36,6 +40,10 @@ class CompanyVerification(Base):
     linkedin_company_url = Column(String, nullable=True)
     employee_count = Column(Integer, default=0)
     user_reports_penalty = Column(Integer, default=0)
+
+    gst_certificate_url = Column(String, nullable=True)
+    business_proof_url = Column(String, nullable=True)
+    kyc_status = Column(String, default="pending", index=True)
 
     risk_notes = Column(Text, nullable=True)
     admin_notes = Column(Text, nullable=True)

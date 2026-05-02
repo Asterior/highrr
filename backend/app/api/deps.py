@@ -51,8 +51,12 @@ def get_verified_recruiter(current_user=Depends(get_current_user), db: Session =
         .first()
     )
     level = (verification.verification_level if verification else "").lower()
-    if level not in {"verified", "trusted"}:
-        raise HTTPException(status_code=403, detail="Company verification required to perform this action")
+    score = int(verification.trust_score or 0) if verification else 0
+    if verification and verification.email_verified and level not in {"strong", "trusted"}:
+        score += 10
+        level = "strong" if score >= 80 else level
+    if level not in {"strong", "trusted"}:
+        raise HTTPException(status_code=403, detail="Complete Level 2 verification before posting jobs")
     return current_user
 
 

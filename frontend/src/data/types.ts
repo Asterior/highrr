@@ -118,6 +118,7 @@ export interface ForumCategory {
 
 export interface ForumThread {
   id: number;
+  author_id: number;
   title: string;
   body: string;
   author_name: string;
@@ -131,17 +132,20 @@ export interface ForumThread {
   reply_count: number;
   upvote_count: number;
   created_at: string;
+  updated_at: string;
   is_upvoted?: boolean | null;
 }
 
 export interface ForumPost {
   id: number;
   thread_id: number;
+  author_id: number;
   author_name: string;
   author_role: UserRole;
   body: string;
   upvote_count: number;
   created_at: string;
+  updated_at: string;
   is_upvoted?: boolean | null;
 }
 

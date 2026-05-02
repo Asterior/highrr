@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_admin, get_current_user
@@ -14,7 +14,14 @@ from app.models.job import Job
 from app.models.recruiter_reputation import RecruiterReputation
 from app.models.user import User
 from app.models.user_report import UserReport
-from app.services.employer_verification import run_verification
+from app.services.employer_verification import (
+    run_verification,
+    verify_dns_mx_record,
+    verify_domain_match,
+    verify_gst_number,
+    verify_linkedin_url,
+    verify_website_exists,
+)
 from app.schemas.trust import (
     AdminVerificationReviewRequest,
     CompanyAssessmentRequest,
@@ -41,42 +48,85 @@ FREE_EMAIL_DOMAINS = {
 }
 
 
-def _level_from_score(score: int) -> str:
-    if score >= 80:
+def _level_from_score(score: int, kyc_status: str | None = None) -> str:
+    if score >= 120 and (kyc_status or "pending") == "approved":
         return "trusted"
-    if score >= 55:
-        return "verified"
-    return "basic"
+    if score >= 80:
+        return "strong"
+    if score >= 40:
+        return "basic"
+    return "unverified"
 
 
-def _assessment_from_payload(payload: CompanyAssessmentRequest) -> tuple[int, str, bool, int, int]:
-    domain = (payload.company_domain or payload.company_email.split("@")[-1]).lower().strip()
-    domain_verified = domain not in FREE_EMAIL_DOMAINS
+def _effective_verification_state(company: CompanyVerification) -> tuple[int, str, bool]:
+    score = int(company.trust_score or 0)
+    if company.email_verified and (company.verification_level or "").lower() not in {"strong", "trusted"}:
+        score += 10
+    score = min(score, 150)
+    level = _level_from_score(score, company.kyc_status)
+    can_post_jobs = level in {"strong", "trusted"} and (company.review_status or "draft") == "approved"
+    return score, level, can_post_jobs
 
-    domain_score = 20 if payload.domain_age_years >= 2 and domain_verified else 8 if domain_verified else 0
-    business_score = 30 if payload.business_registry_id else 0
 
-    website_quality = 0
-    if payload.website_url:
-        website_quality += 4
-    if payload.has_https:
-        website_quality += 3
-    if payload.contact_matches_submission:
-        website_quality += 3
+def _normalize_domain(value: str | None) -> str:
+    if not value:
+        return ""
+    cleaned = value.strip().lower()
+    cleaned = cleaned.replace("https://", "").replace("http://", "")
+    cleaned = cleaned.split("/", 1)[0]
+    if cleaned.startswith("www."):
+        cleaned = cleaned[4:]
+    return cleaned
 
-    office_score = 10 if payload.office_proof_verified else 0
 
-    employee_score = 0
-    if payload.linkedin_company_url:
-        employee_score += 5
-    if payload.employee_count >= 10:
-        employee_score += 5
+def _assessment_from_payload(
+    payload: CompanyAssessmentRequest,
+    company: CompanyVerification | None = None,
+) -> dict[str, int | bool | str]:
+    email_domain = payload.company_email.split("@", 1)[-1].lower().strip() if "@" in payload.company_email else ""
+    business_domain = _normalize_domain(payload.company_domain or payload.website_url or email_domain)
+    website_domain = _normalize_domain(payload.website_url)
+    domain_verified = bool(email_domain and business_domain and email_domain == business_domain)
+    business_registration_verified = verify_gst_number(payload.business_registry_id)
+    website_verified = verify_website_exists(payload.website_url)
+    dns_verified = verify_dns_mx_record(business_domain)
+    linkedin_verified = verify_linkedin_url(payload.linkedin_company_url)
+    email_verified = bool(company.email_verified) if company else False
+    employee_presence_score = min(payload.employee_count // 10, 10)
+    website_quality_score = 10 if payload.has_https else 0
+    response_rate = 100 if payload.contact_matches_submission else 55
+    hiring_success_rate = 100 if payload.office_proof_verified else 60
 
-    score = domain_score + business_score + website_quality + office_score + employee_score
-    score -= payload.user_reports_penalty
-    score = max(0, min(100, score))
+    score = 0
+    score += 24 if domain_verified else 0
+    score += 26 if business_registration_verified else 0
+    score += 16 if website_verified else 0
+    score += 12 if dns_verified else 0
+    score += 16 if linkedin_verified else 0
+    score += 10 if email_verified else 0
+    score += website_quality_score
+    score += 12 if payload.contact_matches_submission else 0
+    score += 12 if payload.office_proof_verified else 0
+    score += employee_presence_score
+    score -= min(payload.user_reports_penalty, 30)
+    score = max(0, min(150, score))
 
-    return score, domain, domain_verified, website_quality, employee_score
+    kyc_status = company.kyc_status if company else "pending"
+    return {
+        "trust_score": score,
+        "verification_level": _level_from_score(score, kyc_status),
+        "domain_verified": domain_verified,
+        "business_registration_verified": business_registration_verified,
+        "website_verified": website_verified,
+        "dns_verified": dns_verified,
+        "linkedin_verified": linkedin_verified,
+        "email_verified": email_verified,
+        "website_quality_score": website_quality_score,
+        "office_proof_verified": payload.office_proof_verified,
+        "employee_presence_score": employee_presence_score,
+        "response_rate": response_rate,
+        "hiring_success_rate": hiring_success_rate,
+    }
 
 
 def _parse_pending_payload(raw_payload: str | None) -> CompanyAssessmentRequest | None:
@@ -184,11 +234,13 @@ def my_verification_status(
             is_locked=False,
         )
 
+    effective_score, effective_level, can_post_jobs = _effective_verification_state(company)
+
     return RecruiterTrustStatusResponse(
         recruiter_id=current_user.id,
-        verification_level=company.verification_level,
-        trust_score=company.trust_score,
-        can_post_jobs=company.verification_level in {"verified", "trusted"},
+        verification_level=effective_level,
+        trust_score=effective_score,
+        can_post_jobs=can_post_jobs,
         review_status=company.review_status or "draft",
         is_locked=bool(company.is_locked),
         submitted_at=company.submitted_at,
@@ -209,15 +261,40 @@ def get_my_verification_profile(
         return RecruiterVerificationProfileResponse(
             recruiter_id=current_user.id,
             company_name="",
-            verification_level="basic",
+            company_email=None,
+            company_domain=None,
+            website_url=None,
+            business_registry_id=None,
+            business_country=None,
+            domain_age_years=0,
+            has_https=False,
+            contact_matches_submission=False,
+            office_proof_verified=False,
+            linkedin_company_url=None,
+            employee_count=0,
+            user_reports_penalty=0,
+            gst_verified=False,
+            email_verified=False,
+            website_verified=False,
+            linkedin_verified=False,
+            dns_verified=False,
+            verification_level="unverified",
             trust_score=0,
             can_post_jobs=False,
             review_status="draft",
             is_locked=False,
+            kyc_status="pending",
+            gst_certificate_url=None,
+            business_proof_url=None,
+            admin_notes=None,
+            submitted_at=None,
+            reviewed_at=None,
         )
 
     pending = _parse_pending_payload(company.pending_payload)
     source = pending if pending and company.review_status in {"pending_review", "rejected"} else None
+
+    effective_score, effective_level, can_post_jobs = _effective_verification_state(company)
 
     return RecruiterVerificationProfileResponse(
         recruiter_id=current_user.id,
@@ -230,15 +307,23 @@ def get_my_verification_profile(
         domain_age_years=(source.domain_age_years if source else (company.domain_age_years or 0)),
         has_https=(source.has_https if source else bool(company.has_https)),
         contact_matches_submission=(source.contact_matches_submission if source else bool(company.contact_matches_submission)),
-        office_proof_verified=(source.office_proof_verified if source else company.office_proof_verified),
+        office_proof_verified=(source.office_proof_verified if source else bool(company.office_proof_verified)),
         linkedin_company_url=(source.linkedin_company_url if source else company.linkedin_company_url),
         employee_count=(source.employee_count if source else (company.employee_count or 0)),
         user_reports_penalty=(source.user_reports_penalty if source else (company.user_reports_penalty or 0)),
-        verification_level=company.verification_level or "basic",
-        trust_score=company.trust_score or 0,
-        can_post_jobs=(company.verification_level in {"verified", "trusted"}),
+        gst_verified=bool(company.gst_verified),
+        email_verified=bool(company.email_verified),
+        website_verified=bool(company.website_verified),
+        linkedin_verified=bool(company.linkedin_verified),
+        dns_verified=bool(company.dns_verified),
+        verification_level=effective_level,
+        trust_score=effective_score,
+        can_post_jobs=can_post_jobs,
         review_status=company.review_status or "draft",
         is_locked=bool(company.is_locked),
+        kyc_status=company.kyc_status or "pending",
+        gst_certificate_url=company.gst_certificate_url,
+        business_proof_url=company.business_proof_url,
         admin_notes=company.admin_notes,
         submitted_at=company.submitted_at,
         reviewed_at=company.reviewed_at,
@@ -289,19 +374,18 @@ def assess_company(
         linkedin_company_url=payload.linkedin_company_url,
     )
 
-    score, _domain, domain_verified, website_quality, employee_score = _assessment_from_payload(payload)
-    level = _level_from_score(score)
+    assessment = _assessment_from_payload(payload, company)
 
     return CompanyTrustResponse(
         recruiter_id=current_user.id,
         company_name=payload.company_name,
-        verification_level=level,
-        trust_score=score,
-        domain_verified=domain_verified,
-        business_registration_verified=bool(payload.business_registry_id),
-        website_quality_score=website_quality,
-        office_proof_verified=payload.office_proof_verified,
-        employee_presence_score=employee_score,
+        verification_level=str(assessment["verification_level"]),
+        trust_score=int(assessment["trust_score"]),
+        domain_verified=bool(assessment["domain_verified"]),
+        business_registration_verified=bool(assessment["business_registration_verified"]),
+        website_quality_score=int(assessment["website_quality_score"]),
+        office_proof_verified=bool(assessment["office_proof_verified"]),
+        employee_presence_score=int(assessment["employee_presence_score"]),
         response_rate=reputation.response_rate,
         hiring_success_rate=reputation.hiring_success_rate,
     )
@@ -326,11 +410,13 @@ def unlock_company_profile(
     db.commit()
     db.refresh(company)
 
+    effective_score, effective_level, can_post_jobs = _effective_verification_state(company)
+
     return RecruiterTrustStatusResponse(
         recruiter_id=current_user.id,
-        verification_level=company.verification_level,
-        trust_score=company.trust_score,
-        can_post_jobs=company.verification_level in {"verified", "trusted"},
+        verification_level=effective_level,
+        trust_score=effective_score,
+        can_post_jobs=can_post_jobs,
         review_status=company.review_status or "draft",
         is_locked=bool(company.is_locked),
         submitted_at=company.submitted_at,
@@ -463,11 +549,19 @@ def get_admin_verification_profile(
         linkedin_company_url=(source.linkedin_company_url if source else company.linkedin_company_url),
         employee_count=(source.employee_count if source else (company.employee_count or 0)),
         user_reports_penalty=(source.user_reports_penalty if source else (company.user_reports_penalty or 0)),
-        verification_level=company.verification_level or "basic",
+        gst_verified=bool(company.gst_verified),
+        email_verified=bool(company.email_verified),
+        website_verified=bool(company.website_verified),
+        linkedin_verified=bool(company.linkedin_verified),
+        dns_verified=bool(company.dns_verified),
+        verification_level=company.verification_level or "unverified",
         trust_score=company.trust_score or 0,
-        can_post_jobs=(company.verification_level in {"verified", "trusted"}),
+        can_post_jobs=(company.verification_level in {"strong", "trusted"}),
         review_status=company.review_status or "draft",
         is_locked=bool(company.is_locked),
+        kyc_status=company.kyc_status or "pending",
+        gst_certificate_url=company.gst_certificate_url,
+        business_proof_url=company.business_proof_url,
         admin_notes=company.admin_notes,
         submitted_at=company.submitted_at,
         reviewed_at=company.reviewed_at,
@@ -494,38 +588,48 @@ def review_company_submission(
 
     if payload.action == "approve":
         if pending:
-            score, domain, domain_verified, website_quality, employee_score = _assessment_from_payload(pending)
-            level = _level_from_score(score)
+            assessment = _assessment_from_payload(pending, company)
 
             company.company_name = pending.company_name
             company.company_email = pending.company_email
-            company.company_domain = domain
+            company.company_domain = _normalize_domain(pending.company_domain or pending.website_url or pending.company_email)
             company.website_url = pending.website_url
-            company.domain_verified = domain_verified
-            company.domain_otp_verified = domain_verified
-            company.business_registration_verified = bool(pending.business_registry_id)
+            company.domain_verified = bool(assessment["domain_verified"])
+            company.domain_otp_verified = bool(assessment["domain_verified"])
+            company.business_registration_verified = bool(assessment["business_registration_verified"])
+            company.gst_verified = bool(assessment["business_registration_verified"])
             company.business_registry_id = pending.business_registry_id
             company.business_country = pending.business_country
             company.domain_age_years = pending.domain_age_years
             company.has_https = pending.has_https
             company.contact_matches_submission = pending.contact_matches_submission
-            company.website_quality_score = website_quality
+            company.website_verified = bool(assessment["website_verified"])
+            company.dns_verified = bool(assessment["dns_verified"])
+            company.linkedin_verified = bool(assessment["linkedin_verified"])
+            company.email_verified = bool(assessment["email_verified"])
+            company.website_quality_score = int(assessment["website_quality_score"])
             company.office_proof_verified = pending.office_proof_verified
-            company.employee_presence_score = employee_score
+            company.employee_presence_score = int(assessment["employee_presence_score"])
             company.linkedin_company_url = pending.linkedin_company_url
             company.employee_count = pending.employee_count
             company.user_reports_penalty = pending.user_reports_penalty
+            company.gst_certificate_url = pending.gst_certificate_url
+            company.business_proof_url = pending.business_proof_url
+            company.kyc_status = "approved"
 
-            company.trust_score = payload.trust_score if payload.trust_score is not None else score
+            company.trust_score = payload.trust_score if payload.trust_score is not None else int(assessment["trust_score"])
             if payload.verification_level:
                 company.verification_level = payload.verification_level
             else:
-                company.verification_level = _level_from_score(company.trust_score)
+                company.verification_level = _level_from_score(company.trust_score, company.kyc_status)
         else:
             if payload.trust_score is not None:
                 company.trust_score = payload.trust_score
             if payload.verification_level:
                 company.verification_level = payload.verification_level
+            if company.kyc_status == "pending":
+                company.kyc_status = "approved"
+            company.verification_level = _level_from_score(company.trust_score, company.kyc_status)
 
         company.review_status = "approved"
         company.is_locked = True
@@ -537,6 +641,7 @@ def review_company_submission(
     else:
         company.review_status = "rejected"
         company.is_locked = True
+        company.kyc_status = "rejected"
         company.reviewed_at = now
         company.admin_notes = payload.admin_notes or "Needs updates from recruiter"
 
@@ -611,6 +716,7 @@ def verify_employer(
 @router.get("/employer-badge/{recruiter_id}")
 def get_employer_badge(
     recruiter_id: int,
+    force_refresh: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     """Returns public recruiter employer verification badge data."""
@@ -625,7 +731,7 @@ def get_employer_badge(
     )
 
     company = db.query(CompanyVerification).filter(CompanyVerification.recruiter_id == recruiter_id).first()
-    should_refresh = False
+    should_refresh = force_refresh
     if company and not verification:
         should_refresh = True
     elif company and verification and company.updated_at and verification.updated_at and company.updated_at > verification.updated_at:
@@ -651,18 +757,35 @@ def get_employer_badge(
         return {
             "recruiter_id": recruiter_id,
             "badge_level": "unverified",
+            "verification_level": "unverified",
+            "trust_score": 0,
             "gst_verified": False,
             "domain_verified": False,
+            "website_verified": False,
+            "email_verified": False,
+            "dns_verified": False,
             "linkedin_verified": False,
+            "gst_certificate_url": None,
+            "business_proof_url": None,
+            "kyc_status": "pending",
             "verified_at": None,
         }
 
+    # Prefer EmployerVerification fields (public badge), fall back to CompanyVerification
     return {
         "recruiter_id": recruiter_id,
-        "badge_level": verification.badge_level,
-        "gst_verified": verification.gst_verified,
-        "domain_verified": verification.domain_verified,
-        "linkedin_verified": verification.linkedin_verified,
+        "badge_level": verification.badge_level or (company.verification_level if company else "unverified"),
+        "verification_level": verification.verification_level or (company.verification_level if company else "unverified"),
+        "trust_score": verification.trust_score or (company.trust_score if company else 0),
+        "gst_verified": bool(verification.gst_verified) or (bool(company.gst_verified) if company else False),
+        "domain_verified": bool(verification.domain_verified) or (bool(company.domain_verified) if company else False),
+        "website_verified": bool(getattr(verification, "website_verified", False)) or (bool(company.website_verified) if company else False),
+        "email_verified": bool(getattr(verification, "email_verified", False)) or (bool(company.email_verified) if company else False),
+        "dns_verified": bool(getattr(verification, "dns_verified", False)) or (bool(company.dns_verified) if company else False),
+        "linkedin_verified": bool(verification.linkedin_verified) or (bool(company.linkedin_verified) if company else False),
+        "gst_certificate_url": getattr(company, "gst_certificate_url", None),
+        "business_proof_url": getattr(company, "business_proof_url", None),
+        "kyc_status": getattr(company, "kyc_status", None) or "pending",
         "verified_at": verification.verified_at,
     }
 

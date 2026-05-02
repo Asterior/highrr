@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { UploadCloud, Sparkles, Target, TrendingUp, FileUp, BadgeCheck } from "lucide-react";
+import { UploadCloud, Sparkles, Target, TrendingUp, FileUp, BadgeCheck, X } from "lucide-react";
 import PageLayout from "@/components/PageLayout";
-import { getATSScore, listResumes, refreshResumeATS, uploadResume } from "@/services/api";
+import { getATSScore, listResumes, refreshResumeATS, uploadResume, deleteResume } from "@/services/api";
 import { toast } from "@/hooks/use-toast";
 import { useStore } from "@/stores/useStore";
-import { Link } from "react-router-dom";
 
 interface ATSResult {
   job_id: number;
@@ -53,7 +52,6 @@ interface JobOption {
 const ATSScore = () => {
   const { jobs, loadJobs } = useStore();
   const [loading, setLoading] = useState(true);
-  const [summaryLoading, setSummaryLoading] = useState(false);
   const [analysisRunning, setAnalysisRunning] = useState(false);
   const [resumesLoading, setResumesLoading] = useState(true);
   const [atsData, setAtsData] = useState<ATSResponse | null>(null);
@@ -115,15 +113,12 @@ const ATSScore = () => {
 
   const runSummary = async () => {
     try {
-      setSummaryLoading(true);
       const token = localStorage.getItem("token");
       if (!token) throw new Error("Not authenticated");
       const data = await getATSScore(token, jobId ? Number(jobId) : undefined);
       setAtsData(data);
     } catch (error: any) {
       toast({ title: "Failed to load ATS insights", description: error.message || "Could not calculate ATS score", variant: "destructive" });
-    } finally {
-      setSummaryLoading(false);
     }
   };
 
@@ -169,7 +164,7 @@ const ATSScore = () => {
     }
   };
 
-  const handleDeleteResume = async (resumeId: number) => {\n    const token = localStorage.getItem(\"token\");\n    if (!token) return;\n    try {\n      await deleteResume(token, resumeId);\n      toast({ title: \"Resume deleted\", description: \"Your resume has been removed.\", variant: \"default\" });\n      await loadStoredResumes();\n    } catch (error) {\n      toast({ title: \"Failed to delete resume\", description: error instanceof Error ? error.message : \"Unknown error\", variant: \"destructive\" });\n    }\n  };\n\n  const handleRunLiveScan = async () => {
+  const handleRunLiveScan = async () => {
     const token = localStorage.getItem("token");
     if (!token) return;
 
@@ -254,12 +249,25 @@ const ATSScore = () => {
           <div className="mt-5 grid gap-3">
             <input type="file" accept=".pdf,.doc,.docx" onChange={(e) => setResumeFile(e.target.files?.[0] || null)} className="rounded-xl bg-muted px-4 py-2.5 text-sm outline-none" />
             <div className="grid gap-3 md:grid-cols-2">
-              <select value={selectedResumeId} onChange={(e) => setSelectedResumeId(e.target.value)} className="rounded-xl bg-muted px-4 py-2.5 text-sm outline-none border-0 text-foreground disabled:opacity-60" disabled={resumesLoading}>
-                <option value="">Select uploaded resume</option>
-                {storedResumes.map((resume) => (
-                  <option key={resume.id} value={resume.id}>{resume.title}{resume.is_primary ? " · primary" : ""}{resume.ats_score ? ` · ${Math.round(resume.ats_score)}%` : ""}</option>
-                ))}
-              </select>
+              <div className="flex gap-2">
+                <select value={selectedResumeId} onChange={(e) => setSelectedResumeId(e.target.value)} className="min-w-0 flex-1 rounded-xl bg-muted px-4 py-2.5 text-sm outline-none border-0 text-foreground disabled:opacity-60" disabled={resumesLoading}>
+                  <option value="">Select uploaded resume</option>
+                  {storedResumes.map((resume) => (
+                    <option key={resume.id} value={resume.id}>{resume.title}{resume.is_primary ? " · primary" : ""}{resume.ats_score ? ` · ${Math.round(resume.ats_score)}%` : ""}</option>
+                  ))}
+                </select>
+                {selectedResumeId && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteResume(Number(selectedResumeId))}
+                    className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                    title="Remove selected resume"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    Remove
+                  </button>
+                )}
+              </div>
               <select value={jobId} onChange={(e) => setJobId(e.target.value)} className="rounded-xl bg-muted px-4 py-2.5 text-sm outline-none border-0 text-foreground">
                 <option value="">Select target job role</option>
                 {jobOptions.map((job) => (

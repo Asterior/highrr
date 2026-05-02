@@ -56,13 +56,19 @@ def _score_location(candidate_profile: dict[str, Any], job: dict[str, Any]) -> i
     Comparison is case-insensitive and whitespace-stripped.
     Uses exact equality only.
     """
-    if bool(job.get("is_remote")):
+    job_location = _normalize_text(job.get("location"))
+    candidate_location = _normalize_text(candidate_profile.get("location"))
+
+    if bool(job.get("is_remote")) or job_location in {"remote", "anywhere", "work from home", "wfh"}:
         return 15
 
     candidate_city = _normalize_text(candidate_profile.get("city"))
     job_city = _normalize_text(job.get("city"))
     candidate_state = _normalize_text(candidate_profile.get("state"))
     job_state = _normalize_text(job.get("state"))
+
+    if candidate_location in {"remote", "anywhere", "work from home", "wfh"} and job_location in {"remote", "anywhere", "work from home", "wfh"}:
+        return 15
 
     if candidate_city and job_city and candidate_city == job_city:
         return 15
@@ -105,10 +111,7 @@ def calculate_match_score(candidate_profile: dict[str, Any], job: dict[str, Any]
     """Calculates the candidate-job compatibility breakdown and overall score.
 
     Scoring:
-    - Skills (40): fraction of matched required skills
-    - Experience (25): tiered threshold based on job minimum experience
-    - Location (15): remote/full city/state matching
-    - Salary (20): expected salary compared to job salary range
+    - Skills only (0-100): fraction of matched required skills
 
     Args:
         candidate_profile: Candidate profile dictionary.
@@ -137,47 +140,7 @@ def calculate_match_score(candidate_profile: dict[str, Any], job: dict[str, Any]
         missing_skills = []
         skills_score = SKILLS_WEIGHT
 
-    candidate_years = _extract_years(candidate_profile.get("total_experience_years"), 0.0)
-    job_min_years = _extract_years(job.get("experience_required"), 0.0)
-    if candidate_years >= job_min_years:
-        experience_score = EXPERIENCE_WEIGHT
-    elif candidate_years >= max(job_min_years - 1, 0):
-        experience_score = 15
-    elif candidate_years >= max(job_min_years - 2, 0):
-        experience_score = 8
-    else:
-        experience_score = 0
-
-    inferred_city = None
-    inferred_state = None
-    job_location = _normalize_text(job.get("location"))
-    if job_location and "," in job_location:
-        parts = [part.strip() for part in job_location.split(",", 1)]
-        if len(parts) == 2:
-            inferred_city = parts[0]
-            inferred_state = parts[1]
-    elif job_location:
-        inferred_city = job_location
-
-    location_score = _score_location(
-        candidate_profile,
-        {
-            "is_remote": bool(job.get("is_remote")),
-            "city": job.get("city") or inferred_city,
-            "state": job.get("state") or inferred_state,
-        },
-    )
-
-    salary_min, salary_max = _extract_salary_range(job.get("salary"))
-    salary_score = _score_salary(
-        {"expected_salary": candidate_profile.get("expected_salary")},
-        {
-            "salary_min": job.get("salary_min") if job.get("salary_min") is not None else salary_min,
-            "salary_max": job.get("salary_max") if job.get("salary_max") is not None else salary_max,
-        },
-    )
-
-    total_score = int(skills_score + experience_score + location_score + salary_score)
+    total_score = int(skills_score)
     if total_score >= 80:
         label = "Excellent"
     elif total_score >= 60:
@@ -192,9 +155,9 @@ def calculate_match_score(candidate_profile: dict[str, Any], job: dict[str, Any]
         "match_label": label,
         "breakdown": {
             "skills": int(skills_score),
-            "experience": int(experience_score),
-            "location": int(location_score),
-            "salary": int(salary_score),
+            "experience": 0,
+            "location": 0,
+            "salary": 0,
         },
         "matched_skills": matched_skills,
         "missing_skills": missing_skills,

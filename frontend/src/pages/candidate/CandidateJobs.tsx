@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, MapPin, Briefcase, Clock } from "lucide-react";
+import { Search, MapPin, Briefcase, Clock, RefreshCcw } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useStore } from "@/stores/useStore";
@@ -32,6 +32,7 @@ const CandidateJobs = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [matchScores, setMatchScores] = useState<ScoreMap>({});
   const [badgesByRecruiter, setBadgesByRecruiter] = useState<Record<number, EmployerBadgeResponse>>({});
+  const [refreshingRecruiterId, setRefreshingRecruiterId] = useState<number | null>(null);
 
   // Load jobs from API on component mount
   useEffect(() => {
@@ -135,6 +136,18 @@ const CandidateJobs = () => {
     };
   }, [filtered, badgesByRecruiter]);
 
+  const refreshRecruiterBadge = async (recruiterId: number) => {
+    setRefreshingRecruiterId(recruiterId);
+    try {
+      const badge = await getEmployerBadge(recruiterId);
+      setBadgesByRecruiter((prev) => ({ ...prev, [recruiterId]: badge }));
+    } catch {
+        toast({ title: "Unable to refresh verification", description: "We could not recheck this badge right now.", variant: "destructive" });
+    } finally {
+      setRefreshingRecruiterId(null);
+    }
+  };
+
   const handleApply = async () => {
     if (!confirmApply) return;
     try {
@@ -201,7 +214,7 @@ const CandidateJobs = () => {
             <motion.div key={job.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="bg-card rounded-2xl border border-border p-6 shadow-card hover-lift">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  {badgesByRecruiter[Number(job.created_by)] && (
+                  {badgesByRecruiter[Number(job.created_by)] ? (
                     <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
                       <span>Company {job.created_by}</span>
                       <VerificationBadge
@@ -209,9 +222,26 @@ const CandidateJobs = () => {
                         checks={{
                           gst: badgesByRecruiter[Number(job.created_by)].gst_verified,
                           domain: badgesByRecruiter[Number(job.created_by)].domain_verified,
+                          website: badgesByRecruiter[Number(job.created_by)].website_verified ?? false,
+                          email: badgesByRecruiter[Number(job.created_by)].email_verified ?? false,
+                          dns: badgesByRecruiter[Number(job.created_by)].dns_verified ?? false,
                           linkedin: badgesByRecruiter[Number(job.created_by)].linkedin_verified,
                         }}
+                        onRefresh={() => refreshRecruiterBadge(Number(job.created_by))}
+                        refreshing={refreshingRecruiterId === Number(job.created_by)}
                       />
+                    </div>
+                  ) : (
+                    <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>Company {job.created_by}</span>
+                      <button
+                        onClick={() => refreshRecruiterBadge(Number(job.created_by))}
+                        disabled={refreshingRecruiterId === Number(job.created_by)}
+                        className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-60"
+                        title="Recheck verification"
+                      >
+                        <RefreshCcw className="w-3.5 h-3.5" /> Recheck
+                      </button>
                     </div>
                   )}
                   <div className="flex items-center gap-3">
@@ -251,28 +281,24 @@ const CandidateJobs = () => {
                         </svg>
                         <span className="absolute text-sm font-bold text-foreground">{total}%</span>
                       </div>
-                      <p className="mt-2 text-center text-xs font-semibold text-foreground">{score.match_label} Match</p>
+                      <p className="mt-2 text-center text-xs font-semibold text-foreground">Skills Match</p>
 
                       <div className="mt-3 space-y-2">
-                        {[
-                          { label: "Skills", value: score.breakdown.skills, max: 40 },
-                          { label: "Experience", value: score.breakdown.experience, max: 25 },
-                          { label: "Location", value: score.breakdown.location, max: 15 },
-                          { label: "Salary", value: score.breakdown.salary, max: 20 },
-                        ].map((item) => (
-                          <div key={item.label}>
-                            <div className="mb-0.5 flex justify-between text-[10px] text-muted-foreground">
-                              <span>{item.label}</span>
-                              <span>{item.value}/{item.max}</span>
-                            </div>
-                            <div className="h-1.5 rounded-full bg-gray-200">
-                              <div
-                                className="h-1.5 rounded-full bg-violet-500"
-                                style={{ width: `${Math.min(100, (item.value / item.max) * 100)}%` }}
-                              />
-                            </div>
+                        <div>
+                          <div className="mb-0.5 flex justify-between text-[10px] text-muted-foreground">
+                            <span>Skills</span>
+                            <span>{score.breakdown.skills}/100</span>
                           </div>
-                        ))}
+                          <div className="h-1.5 rounded-full bg-gray-200">
+                            <div
+                              className="h-1.5 rounded-full bg-violet-500"
+                              style={{ width: `${Math.min(100, score.breakdown.skills)}%` }}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-center text-[10px] text-muted-foreground">
+                          {score.matched_skills.length} matched · {score.missing_skills.length} missing
+                        </p>
                       </div>
                     </div>
                   ) : (

@@ -122,95 +122,133 @@ interface JobPayload {
   application_count?: number;
 }
 
-  export interface JobMatchScore {
-    total_score: number;
-    match_label: "Excellent" | "Good" | "Fair" | "Low";
-    breakdown: {
-      skills: number;
-      experience: number;
-      location: number;
-      salary: number;
-    };
-    matched_skills: string[];
-    missing_skills: string[];
-  }
+export interface JobMatchScore {
+  total_score: number;
+  match_label: "Excellent" | "Good" | "Fair" | "Low";
+  breakdown: {
+    skills: number;
+    experience: number;
+    location: number;
+    salary: number;
+  };
+  matched_skills: string[];
+  missing_skills: string[];
+}
 
-  export interface AlertCreate {
-    role_keywords: string[];
-    location?: string;
-    min_salary?: number;
-    max_experience?: number;
-  }
+export interface AlertCreate {
+  role_keywords: string[];
+  location?: string;
+  min_salary?: number;
+  max_experience?: number;
+}
 
-  export interface AlertResponse {
-    id: number;
-    candidate_id: number;
-    role_keywords: string[];
-    location: string | null;
-    min_salary: number | null;
-    max_experience: number | null;
-    is_active: boolean;
-    created_at: string;
-    last_triggered_at: string | null;
-  }
+export interface AlertResponse {
+  id: number;
+  candidate_id: number;
+  role_keywords: string[];
+  location: string | null;
+  min_salary: number | null;
+  max_experience: number | null;
+  is_active: boolean;
+  created_at: string;
+  last_triggered_at: string | null;
+}
 
-  export interface NotificationResponse {
-    id: number;
-    user_id: number;
-    type: string;
-    title: string;
-    body: string;
-    job_id: number | null;
-    is_read: boolean;
-    created_at: string;
-  }
+export interface NotificationResponse {
+  id: number;
+  user_id: number;
+  type: string;
+  title: string;
+  body: string;
+  job_id: number | null;
+  is_read: boolean;
+  created_at: string;
+}
 
-  export interface NotificationListResponse {
-    items: NotificationResponse[];
-    total_count: number;
-    unread_count: number;
-  }
+export interface NotificationListResponse {
+  items: NotificationResponse[];
+  total_count: number;
+  unread_count: number;
+}
 
-  export interface AlertOptionsResponse {
-    role_keywords: string[];
-    locations: string[];
-    min_salary_options: number[];
-    max_experience_options: number[];
-  }
+export interface AlertOptionsResponse {
+  min_salary_options: number[];
+  max_experience_options: number[];
+}
 
-  export interface EmployerBadgeResponse {
-    recruiter_id: number;
-    badge_level: "verified" | "partial" | "unverified";
-    gst_verified: boolean;
-    domain_verified: boolean;
-    linkedin_verified: boolean;
-    verified_at: string | null;
-  }
+export interface EmployerBadgeResponse {
+  recruiter_id: number;
+  badge_level: "unverified" | "basic" | "strong" | "trusted";
+  verification_level?: string;
+  trust_score?: number;
+  gst_verified: boolean;
+  domain_verified: boolean;
+  website_verified?: boolean;
+  email_verified?: boolean;
+  dns_verified?: boolean;
+  linkedin_verified: boolean;
+  gst_certificate_url?: string | null;
+  business_proof_url?: string | null;
+  kyc_status?: string;
+  verified_at: string | null;
+}
 
-  export interface RecruiterVerificationProfileResponse {
-    recruiter_id: number;
-    company_name: string;
-    company_email: string | null;
-    company_domain: string | null;
-    website_url: string | null;
-    business_registry_id: string | null;
-    business_country: string | null;
-    domain_age_years: number;
-    has_https: boolean;
-    contact_matches_submission: boolean;
-    office_proof_verified: boolean;
-    linkedin_company_url: string | null;
-    employee_count: number;
-    user_reports_penalty: number;
-    verification_level: string;
-    trust_score: number;
-    can_post_jobs: boolean;
-    review_status: string;
-    is_locked: boolean;
-    admin_notes: string | null;
-    submitted_at: string | null;
-    reviewed_at: string | null;
-  }
+export interface RecruiterTrustStatusResponse {
+  recruiter_id: number;
+  verification_level: string;
+  trust_score: number;
+  can_post_jobs: boolean;
+  review_status: string;
+  is_locked: boolean;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+}
+
+export interface RecruiterVerificationProfileResponse {
+  recruiter_id: number;
+  company_name: string;
+  company_email: string | null;
+  company_domain: string | null;
+  website_url: string | null;
+  business_registry_id: string | null;
+  business_country: string | null;
+  domain_age_years: number;
+  has_https: boolean;
+  contact_matches_submission: boolean;
+  office_proof_verified: boolean;
+  linkedin_company_url: string | null;
+  employee_count: number;
+  user_reports_penalty: number;
+  gst_verified: boolean;
+  email_verified: boolean;
+  website_verified: boolean;
+  linkedin_verified: boolean;
+  dns_verified: boolean;
+  verification_level: string;
+  trust_score: number;
+  can_post_jobs: boolean;
+  review_status: string;
+  is_locked: boolean;
+  kyc_status: string;
+  gst_certificate_url: string | null;
+  business_proof_url: string | null;
+  admin_notes: string | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+}
+
+export interface SendOtpResponse {
+  email: string;
+  expires_in_seconds: number;
+  message: string;
+  otp_code?: string | null;
+}
+
+export interface VerifyOtpResponse {
+  email: string;
+  email_verified: boolean;
+  message: string;
+}
 
 /**
  * Fetch jobs from database with optional filters
@@ -437,6 +475,22 @@ export async function createForumPost(payload: {
   body: string;
 }): Promise<ForumPost> {
   const { data } = await apiClient.post("/forum/posts", payload);
+  return data;
+}
+
+export async function updateForumThread(
+  threadId: number | string,
+  payload: {
+    title?: string;
+    body?: string;
+  }
+): Promise<ForumThreadDetail> {
+  const { data } = await apiClient.patch(`/forum/threads/${threadId}`, payload);
+  return data;
+}
+
+export async function updateForumPost(postId: number | string, payload: { body: string }): Promise<ForumPost> {
+  const { data } = await apiClient.patch(`/forum/posts/${postId}`, payload);
   return data;
 }
 
@@ -1121,6 +1175,40 @@ export async function getRecruiterVerificationProfile(token: string) {
   return res.json();
 }
 
+export async function sendRecruiterOtp(token: string): Promise<SendOtpResponse> {
+  const res = await fetch(`${BASE_URL}/auth/send-otp`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to send OTP");
+  }
+
+  return res.json();
+}
+
+export async function verifyRecruiterOtp(token: string, otp: string): Promise<VerifyOtpResponse> {
+  const res = await fetch(`${BASE_URL}/auth/verify-otp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ otp }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to verify OTP");
+  }
+
+  return res.json();
+}
+
 export async function assessCompanyVerification(
   token: string,
   payload: {
@@ -1188,8 +1276,14 @@ export async function getCompanyTrust(token: string, recruiterId: number | strin
   return res.json();
 }
 
-export async function getEmployerBadge(recruiterId: number): Promise<EmployerBadgeResponse> {
-  const res = await fetch(`${BASE_URL}/trust/employer-badge/${recruiterId}`, {
+export async function getEmployerBadge(recruiterId: number | string, forceRefresh = false): Promise<EmployerBadgeResponse> {
+  const params = new URLSearchParams();
+  if (forceRefresh) {
+    params.append("force_refresh", "true");
+  }
+
+  const query = params.toString();
+  const res = await fetch(`${BASE_URL}/trust/employer-badge/${recruiterId}${query ? `?${query}` : ""}`, {
     method: "GET",
   });
 
@@ -1289,6 +1383,47 @@ export async function getAlertOptions(): Promise<AlertOptionsResponse> {
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.detail || "Failed to load alert options");
+  }
+
+  return res.json();
+}
+
+/**
+ * Send OTP to the recruiter's company email for Level 2 verification.
+ */
+export async function sendVerificationOtp(token: string): Promise<SendOtpResponse> {
+  const res = await fetch(`${BASE_URL}/auth/send-otp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to send OTP");
+  }
+
+  return res.json();
+}
+
+/**
+ * Verify OTP entered by recruiter for company email verification.
+ */
+export async function verifyVerificationOtp(token: string, otp: string): Promise<VerifyOtpResponse> {
+  const res = await fetch(`${BASE_URL}/auth/verify-otp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ otp }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Failed to verify OTP");
   }
 
   return res.json();

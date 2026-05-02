@@ -8,12 +8,14 @@ import ForumPostItem from "@/components/forum/ForumPostItem";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ForumThreadDetail } from "@/data/types";
-import { createForumPost, getForumThread, reportForumContent, toggleForumUpvote } from "@/services/api";
+import { createForumPost, deleteForumPost, deleteForumThread, getForumThread, reportForumContent, toggleForumUpvote, updateForumPost, updateForumThread } from "@/services/api";
 import { toast } from "@/hooks/use-toast";
+import { useStore } from "@/stores/useStore";
 
 const ForumThreadPage = () => {
   const { slug, threadId } = useParams();
   const navigate = useNavigate();
+  const { user } = useStore();
   const [thread, setThread] = useState<ForumThreadDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -54,6 +56,10 @@ const ForumThreadPage = () => {
   const updateThread = (updater: (current: ForumThreadDetail) => ForumThreadDetail) => {
     setThread((current) => (current ? updater(current) : current));
   };
+
+  const canManageThread = Boolean(thread && thread.author_id === user.id);
+  const canEditPost = (postAuthorId: number) => postAuthorId === user.id;
+  const canDeletePost = (postAuthorId: number) => user.role === "admin" || postAuthorId === user.id;
 
   const handleToggleUpvote = async () => {
     if (!thread) return;
@@ -110,6 +116,40 @@ const ForumThreadPage = () => {
     }
   };
 
+  const handleEditThread = async () => {
+    if (!thread || !canManageThread) return;
+    const nextTitle = window.prompt("Edit thread title", thread.title);
+    if (nextTitle === null) return;
+    const nextBody = window.prompt("Edit thread body", thread.body);
+    if (nextBody === null) return;
+
+    try {
+      setBusyAction(`thread-edit-${thread.id}`);
+      const updated = await updateForumThread(thread.id, { title: nextTitle, body: nextBody });
+      setThread(updated);
+      toast({ title: "Thread updated" });
+    } catch (editError: any) {
+      toast({ title: "Could not update thread", description: editError.message, variant: "destructive" });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDeleteThread = async () => {
+    if (!thread || user.role !== "admin") return;
+    if (!window.confirm("Remove this thread? This will delete the discussion and replies.")) return;
+    try {
+      setBusyAction(`thread-delete-${thread.id}`);
+      await deleteForumThread(thread.id);
+      toast({ title: "Thread removed" });
+      navigate("/forums");
+    } catch (deleteError: any) {
+      toast({ title: "Could not remove thread", description: deleteError.message, variant: "destructive" });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const handlePostUpvote = async (postId: number) => {
     if (!thread) return;
     const actionKey = `post-upvote-${postId}`;
@@ -124,6 +164,52 @@ const ForumThreadPage = () => {
       }));
     } catch (upvoteError: any) {
       toast({ title: "Upvote failed", description: upvoteError.message, variant: "destructive" });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleEditPost = async (postId: number) => {
+    if (!thread) return;
+    const currentPost = thread.posts.find((post) => post.id === postId);
+    if (!currentPost || !canEditPost(currentPost.author_id)) return;
+    const nextBody = window.prompt("Edit reply", currentPost.body);
+    if (nextBody === null) return;
+
+    try {
+      setBusyAction(`post-edit-${postId}`);
+      const updated = await updateForumPost(postId, { body: nextBody });
+      updateThread((current) => ({
+        ...current,
+        posts: current.posts.map((post) => (post.id === postId ? updated : post)),
+      }));
+      toast({ title: "Reply updated" });
+    } catch (editError: any) {
+      toast({ title: "Could not update reply", description: editError.message, variant: "destructive" });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDeletePost = async (postId: number) => {
+    if (!thread) return;
+    const currentPost = thread.posts.find((post) => post.id === postId);
+    if (!currentPost || !canDeletePost(currentPost.author_id)) return;
+    if (!window.confirm("Remove this reply?")) return;
+
+    try {
+      setBusyAction(`post-delete-${postId}`);
+      await deleteForumPost(postId);
+      const removedLabel = user.role === "admin" ? user.name : currentPost.author_name;
+      updateThread((current) => ({
+        ...current,
+        posts: current.posts.map((post) =>
+          post.id === postId ? { ...post, body: `[removed by ${removedLabel}]` } : post,
+        ),
+      }));
+      toast({ title: "Reply removed" });
+    } catch (deleteError: any) {
+      toast({ title: "Could not remove reply", description: deleteError.message, variant: "destructive" });
     } finally {
       setBusyAction(null);
     }
@@ -174,6 +260,16 @@ const ForumThreadPage = () => {
                 <ThumbsUp className="h-4 w-4" />
                 {thread?.is_upvoted ? "Remove upvote" : "Upvote"}
               </Button>
+              {canManageThread && (
+                <Button variant="outline" onClick={handleEditThread} disabled={busyAction === `thread-edit-${thread?.id}`} className="gap-2 rounded-full">
+                  Edit thread
+                </Button>
+              )}
+              {user.role === "admin" && (
+                <Button variant="outline" onClick={handleDeleteThread} disabled={busyAction === `thread-delete-${thread?.id}`} className="gap-2 rounded-full border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800">
+                  Remove thread
+                </Button>
+              )}
               <Button variant="outline" onClick={() => thread && handleReport(thread.id, "thread")} disabled={busyAction === `thread-report-${thread?.id}`} className="gap-2 rounded-full">
                 <Flag className="h-4 w-4" />
                 Report thread
@@ -200,9 +296,11 @@ const ForumThreadPage = () => {
                 <ForumPostItem
                   key={post.id}
                   post={post}
-                  actionDisabled={busyAction === `post-upvote-${post.id}` || busyAction === `post-report-${post.id}`}
+                  actionDisabled={busyAction === `post-upvote-${post.id}` || busyAction === `post-report-${post.id}` || busyAction === `post-edit-${post.id}` || busyAction === `post-delete-${post.id}`}
                   onUpvote={() => handlePostUpvote(post.id)}
                   onReport={() => handleReport(post.id, "post")}
+                  onEdit={canEditPost(post.author_id) ? () => handleEditPost(post.id) : undefined}
+                  onDelete={canDeletePost(post.author_id) ? () => handleDeletePost(post.id) : undefined}
                 />
               ))}
             </div>

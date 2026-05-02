@@ -24,6 +24,7 @@ def _author_payload(author: User) -> dict:
 def _thread_payload(thread: ForumThread, *, upvoted: bool | None = None) -> dict:
     payload = {
         "id": thread.id,
+        "author_id": thread.author_id,
         "title": thread.title,
         "body": thread.body,
         "author_name": thread.author.name if thread.author else "Unknown",
@@ -37,6 +38,7 @@ def _thread_payload(thread: ForumThread, *, upvoted: bool | None = None) -> dict
         "reply_count": thread.reply_count or 0,
         "upvote_count": thread.upvote_count or 0,
         "created_at": thread.created_at,
+        "updated_at": thread.updated_at,
         "is_upvoted": upvoted,
     }
     return payload
@@ -46,11 +48,13 @@ def _post_payload(post: ForumPost, *, upvoted: bool | None = None) -> dict:
     return {
         "id": post.id,
         "thread_id": post.thread_id,
+        "author_id": post.author_id,
         "author_name": post.author.name if post.author else "Unknown",
         "author_role": post.author.role if post.author else "candidate",
         "body": post.body,
         "upvote_count": post.upvote_count or 0,
         "created_at": post.created_at,
+        "updated_at": post.updated_at,
         "is_upvoted": upvoted,
     }
 
@@ -211,6 +215,35 @@ def create_thread(author_id: int, category_id: int, title: str, body: str, db: S
     return _thread_payload(thread, upvoted=False)
 
 
+def update_thread(thread_id: int, user_id: int, is_admin: bool, title: str | None, body: str | None, db: Session) -> dict:
+    thread = db.query(ForumThread).filter(ForumThread.id == thread_id).first()
+    if not thread:
+        raise ValueError("Thread not found")
+    if thread.author_id != user_id:
+        raise ValueError("Not authorized")
+
+    if title is not None:
+        clean_title = sanitize_string(title, 200)
+        if len(clean_title) < 10:
+          raise ValueError("Title too short")
+        thread.title = clean_title
+    if body is not None:
+        clean_body = sanitize_string(body, 5000)
+        if len(clean_body) < 20:
+            raise ValueError("Body too short")
+        thread.body = clean_body
+
+    db.commit()
+    db.refresh(thread)
+    thread = (
+        db.query(ForumThread)
+        .options(joinedload(ForumThread.author), joinedload(ForumThread.category))
+        .filter(ForumThread.id == thread.id)
+        .first()
+    )
+    return _thread_payload(thread, upvoted=False)
+
+
 def create_post(author_id: int, thread_id: int, body: str, db: Session) -> dict:
     """Creates a reply post.
     Sanitizes body via sanitize_string().
@@ -242,6 +275,29 @@ def create_post(author_id: int, thread_id: int, body: str, db: Session) -> dict:
     post = ForumPost(author_id=author_id, thread_id=thread_id, body=clean_body)
     db.add(post)
     thread.reply_count = (thread.reply_count or 0) + 1
+    db.commit()
+    db.refresh(post)
+    post = (
+        db.query(ForumPost)
+        .options(joinedload(ForumPost.author), joinedload(ForumPost.thread))
+        .filter(ForumPost.id == post.id)
+        .first()
+    )
+    return _post_payload(post, upvoted=False)
+
+
+def update_post(post_id: int, user_id: int, body: str, db: Session) -> dict:
+    post = db.query(ForumPost).filter(ForumPost.id == post_id).first()
+    if not post:
+        raise ValueError("Post not found")
+    if post.author_id != user_id:
+        raise ValueError("Not authorized to edit this post")
+
+    clean_body = sanitize_string(body, 3000)
+    if len(clean_body) < 5:
+        raise ValueError("Body too short")
+
+    post.body = clean_body
     db.commit()
     db.refresh(post)
     post = (
@@ -406,18 +462,19 @@ def admin_delete_thread(thread_id: int, db: Session) -> None:
     db.commit()
 
 
-def admin_delete_post(post_id: int, db: Session) -> None:
-    """Hard deletes a single post.
-    Decrements parent thread.reply_count by 1.
+def admin_delete_post(post_id: int, admin_name: str, db: Session) -> None:
+    """Soft-remove a single post so users see it was removed by an admin.
+    Replaces the post body with a removed-notice and preserves reply_count.
     Raises ValueError "Post not found" if invalid.
     """
     post = db.query(ForumPost).filter(ForumPost.id == post_id).first()
     if not post:
         raise ValueError("Post not found")
-    thread = db.query(ForumThread).filter(ForumThread.id == post.thread_id).first()
-    if thread:
-        thread.reply_count = max(0, (thread.reply_count or 0) - 1)
-    db.delete(post)
+
+    # Replace body with a removed notice so clients can render "removed by X" messages
+    post.body = f"[removed by {admin_name}]"
+    # Reset upvotes for clarity
+    post.upvote_count = 0
     db.commit()
 
 

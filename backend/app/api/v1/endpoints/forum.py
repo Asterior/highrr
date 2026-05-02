@@ -17,8 +17,10 @@ from app.schemas.forum import (
     PaginatedThreads,
     PostCreate,
     PostResponse,
+    PostUpdate,
     ThreadCreate,
     ThreadDetailResponse,
+    ThreadUpdate,
     UpvoteRequest,
     UpvoteResponse,
 )
@@ -34,6 +36,8 @@ from app.services.forum_service import (
     get_thread_detail,
     get_threads,
     report_content,
+    update_post,
+    update_thread,
     toggle_upvote,
 )
 
@@ -100,6 +104,19 @@ def forum_create_thread(
         bad_request(str(exc))
 
 
+@router.patch("/threads/{thread_id}", response_model=ThreadDetailResponse)
+def forum_update_thread(
+    thread_id: int,
+    payload: ThreadUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return update_thread(thread_id, current_user.id, current_user.role == "admin", payload.title, payload.body, db)
+    except ValueError as exc:
+        bad_request(str(exc))
+
+
 @router.post("/posts", response_model=PostResponse, status_code=201)
 def forum_create_post(
     payload: PostCreate,
@@ -108,6 +125,19 @@ def forum_create_post(
 ):
     try:
         return create_post(current_user.id, payload.thread_id, payload.body, db)
+    except ValueError as exc:
+        bad_request(str(exc))
+
+
+@router.patch("/posts/{post_id}", response_model=PostResponse)
+def forum_update_post(
+    post_id: int,
+    payload: PostUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return update_post(post_id, current_user.id, payload.body, db)
     except ValueError as exc:
         bad_request(str(exc))
 
@@ -166,11 +196,10 @@ def forum_delete_thread(thread_id: int, current_user: User = Depends(get_admin),
 
 
 @router.delete("/posts/{post_id}")
-def forum_delete_post(post_id: int, current_user: User = Depends(get_admin), db: Session = Depends(get_db)):
-    _ = current_user
+def forum_delete_post(post_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        admin_delete_post(post_id, db)
-        return {"message": "Post deleted"}
+        admin_delete_post(post_id, current_user.name, db)
+        return {"message": "Post removed"}
     except ValueError:
         not_found("Post")
 

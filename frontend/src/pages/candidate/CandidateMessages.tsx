@@ -6,6 +6,7 @@ import PageLayout from "@/components/PageLayout";
 import { getConversationMessages, getConversations, markMessageAsRead, sendConversationMessage, startConversation } from "@/services/api";
 import { toast } from "@/hooks/use-toast";
 import { useSearchParams } from "react-router-dom";
+import { useChat } from "@/hooks/useChat";
 
 interface ConversationItem {
   id: number;
@@ -42,6 +43,14 @@ const CandidateMessages = () => {
 
   const activeConv = conversations.find((c) => String(c.id) === activeChatId);
   const filteredConvs = conversations.filter((c) => c.participant_name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  const { status, isTyping, otherUserOnline, sendWsMessage } = useChat({
+    conversationId: activeChatId || null,
+    onNewMessage: async () => {
+      if (!activeChatId) return;
+      await Promise.all([loadMessages(activeChatId), loadConversations()]);
+    },
+  });
 
   const loadConversations = async () => {
     if (!token) return;
@@ -112,10 +121,13 @@ const CandidateMessages = () => {
     if (!newMessage.trim() || !activeChatId) return;
     try {
       setSending(true);
-      await sendConversationMessage(token, activeChatId, {
-        receiver_id: activeConv?.participant_id || 0,
-        message: newMessage.trim(),
-      });
+      const sentViaSocket = sendWsMessage(newMessage.trim());
+      if (!sentViaSocket) {
+        await sendConversationMessage(token, activeChatId, {
+          receiver_id: activeConv?.participant_id || 0,
+          message: newMessage.trim(),
+        });
+      }
       setNewMessage("");
       await loadMessages(activeChatId);
       await loadConversations();
@@ -154,7 +166,16 @@ const CandidateMessages = () => {
 
   return (
     <PageLayout>
-      <h1 className="text-3xl font-bold text-foreground mb-6">Messages</h1>
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Messages</h1>
+          <p className="text-sm text-muted-foreground">{status === "connected" ? "Candidate inbox is synced live." : "Socket reconnecting, REST fallback remains available."}</p>
+        </div>
+        <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${status === "connected" ? "bg-emerald-50 text-emerald-700" : status === "connecting" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
+          <span className={`h-2 w-2 rounded-full ${status === "connected" ? "bg-emerald-500" : status === "connecting" ? "bg-amber-500" : "bg-slate-400"}`} />
+          {status}
+        </span>
+      </div>
 
       {loading && <div className="mb-4 text-sm text-muted-foreground">Loading conversations...</div>}
 
@@ -203,9 +224,12 @@ const CandidateMessages = () => {
           <div className="flex-1 flex flex-col">
             {activeConv ? (
               <>
-                <div className="p-4 border-b border-border flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">{(activeConv.participant_name || "U").charAt(0).toUpperCase()}</div>
-                  <p className="font-semibold text-foreground">{activeConv.participant_name}</p>
+                <div className="p-4 border-b border-border flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">{(activeConv.participant_name || "U").charAt(0).toUpperCase()}</div>
+                    <p className="font-semibold text-foreground">{activeConv.participant_name}</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{isTyping ? "Typing…" : otherUserOnline ? "Online" : "Offline"}</p>
                 </div>
                 <div className="flex-1 overflow-y-auto p-6 space-y-4">
                   {messages.map((msg) => {

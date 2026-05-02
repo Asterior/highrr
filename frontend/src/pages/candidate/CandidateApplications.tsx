@@ -126,6 +126,13 @@ const CandidateApplications = () => {
           {closedApps.map((app, i) => {
             const job = jobs.find((j) => j.id === app.job_id);
             const interview = interviewMap.get(app.id);
+            const displayedStatus = interview?.recruiter_decision
+              ? interview.recruiter_decision === "hire"
+                ? "selected"
+                : interview.recruiter_decision === "reject"
+                ? "rejected"
+                : app.status
+              : app.status;
             return (
               <motion.div key={`closed-${app.id}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="bg-card rounded-2xl border border-border p-6 shadow-card">
                 <div className="flex items-start justify-between">
@@ -133,7 +140,7 @@ const CandidateApplications = () => {
                     <h3 className="font-semibold text-foreground">{job?.title || app.role}</h3>
                     <p className="text-sm text-muted-foreground mt-1">{job?.department} · {job?.location}</p>
                   </div>
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusColor(app.status)}`}>{getStatusLabel(app.status)}</span>
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusColor(displayedStatus)}`}>{getStatusLabel(displayedStatus)}</span>
                 </div>
 
                 <div className="mt-3 rounded-xl bg-muted/60 p-4">

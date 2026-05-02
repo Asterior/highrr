@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_verified_recruiter
 from app.core.errors import bad_request, forbidden, not_found
 from app.core.sanitize import sanitize_string
 from app.core.resume_parser import extract_job_signals, extract_text_from_file
@@ -148,18 +148,11 @@ async def create_job(
     job: JobCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_verified_recruiter)
 ):
     if current_user.role not in ["admin", "recruiter"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    if current_user.role == "recruiter":
-        level, _score = _verification_for_recruiter(db, current_user.id)
-        if level not in {"verified", "trusted"}:
-            raise HTTPException(
-                status_code=403,
-                detail="Complete company verification first to post jobs",
-            )
 
     if not job.salary or job.salary.strip().lower() in {"competitive", "negotiable", "na"}:
         raise HTTPException(status_code=400, detail="Salary range is mandatory and cannot be vague")

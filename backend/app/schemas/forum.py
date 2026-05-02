@@ -25,6 +25,7 @@ class ThreadCreate(BaseModel):
 
 class ThreadListItem(BaseModel):
     id: int
+    author_id: int
     title: str
     author_name: str
     author_role: str
@@ -37,6 +38,7 @@ class ThreadListItem(BaseModel):
     reply_count: int
     upvote_count: int
     created_at: datetime
+    updated_at: datetime
     is_upvoted: bool | None = None
 
     class Config:
@@ -46,11 +48,13 @@ class ThreadListItem(BaseModel):
 class PostResponse(BaseModel):
     id: int
     thread_id: int
+    author_id: int
     author_name: str
     author_role: str
     body: str
     upvote_count: int
     created_at: datetime
+    updated_at: datetime
     is_upvoted: bool | None = None
 
     class Config:
@@ -59,6 +63,7 @@ class PostResponse(BaseModel):
 
 class ThreadDetailResponse(BaseModel):
     id: int
+    author_id: int
     title: str
     body: str
     author_name: str
@@ -72,6 +77,7 @@ class ThreadDetailResponse(BaseModel):
     reply_count: int
     upvote_count: int
     created_at: datetime
+    updated_at: datetime
     posts: list[PostResponse]
     is_upvoted: bool | None = None
 
@@ -81,6 +87,15 @@ class ThreadDetailResponse(BaseModel):
 
 class PostCreate(BaseModel):
     thread_id: int
+    body: str
+
+
+class ThreadUpdate(BaseModel):
+    title: str | None = None
+    body: str | None = None
+
+
+class PostUpdate(BaseModel):
     body: str
 
 

@@ -15,6 +15,19 @@ const CandidateCompany = () => {
   const [loading, setLoading] = useState(true);
   const [company, setCompany] = useState<any>(null);
   const [employerBadge, setEmployerBadge] = useState<EmployerBadgeResponse | null>(null);
+  const [refreshingBadge, setRefreshingBadge] = useState(false);
+
+  const refreshEmployerBadge = async () => {
+    if (!recruiterId) return;
+    setRefreshingBadge(true);
+    try {
+      setEmployerBadge(await getEmployerBadge(Number(recruiterId)));
+    } catch {
+      setEmployerBadge(null);
+    } finally {
+      setRefreshingBadge(false);
+    }
+  };
 
   useEffect(() => {
     const loadCompany = async () => {
@@ -26,11 +39,7 @@ const CandidateCompany = () => {
         await loadJobs();
         const data = await getCompanyTrust(token, recruiterId);
         setCompany(data);
-        try {
-          setEmployerBadge(await getEmployerBadge(Number(recruiterId)));
-        } catch {
-          setEmployerBadge(null);
-        }
+        await refreshEmployerBadge();
       } catch (error: any) {
         toast({ title: "Company profile unavailable", description: error.message, variant: "destructive" });
       } finally {
@@ -63,10 +72,12 @@ const CandidateCompany = () => {
 
   const trustColor =
     company.verification_level === "trusted"
-      ? "text-emerald-700 bg-emerald-50"
-      : company.verification_level === "verified"
-        ? "text-violet-700 bg-violet-50"
-        : "text-slate-700 bg-slate-100";
+      ? "text-sky-700 bg-sky-50"
+      : company.verification_level === "strong"
+        ? "text-emerald-700 bg-emerald-50"
+        : company.verification_level === "basic"
+          ? "text-amber-700 bg-amber-50"
+          : "text-rose-700 bg-rose-50";
 
   return (
     <PageLayout>
@@ -101,8 +112,13 @@ const CandidateCompany = () => {
                   checks={{
                     gst: employerBadge.gst_verified,
                     domain: employerBadge.domain_verified,
+                    website: Boolean(company.website_verified),
+                    email: Boolean(company.email_verified),
+                    dns: Boolean(company.dns_verified),
                     linkedin: employerBadge.linkedin_verified,
                   }}
+                  onRefresh={refreshEmployerBadge}
+                  refreshing={refreshingBadge}
                 />
               </div>
             )}
@@ -111,10 +127,11 @@ const CandidateCompany = () => {
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
-              <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${trustColor}`}>{company.verification_level}</span>
+              <span className={`rounded-full px-3 py-1.5 text-xs font-semibold capitalize ${trustColor}`}>{company.verification_level}</span>
               <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">Trust score {company.trust_score}/100</span>
               <span className="rounded-full bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700">Response rate {Math.round(company.response_rate)}%</span>
               <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">Hiring success {Math.round(company.hiring_success_rate)}%</span>
+              {!company.can_post_jobs && <span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">Upgrade to Level 2 to unlock job posting</span>}
             </div>
 
             <div className="mt-8 grid gap-3 sm:grid-cols-2">
@@ -127,6 +144,7 @@ const CandidateCompany = () => {
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Mail className="h-3.5 w-3.5" /> Contact</div>
                 <p className="mt-2 text-sm font-medium text-foreground">{company.company_email || "Not shared"}</p>
                 <p className="mt-1 text-xs text-muted-foreground">Business registry: {company.business_registration_verified ? "Verified" : "Pending"}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Email verification: {company.email_verified ? "Verified" : "Pending"}</p>
               </div>
               <div className="rounded-2xl border border-border bg-card p-4">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Globe className="h-3.5 w-3.5" /> Website</div>
@@ -137,6 +155,7 @@ const CandidateCompany = () => {
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Users className="h-3.5 w-3.5" /> Presence</div>
                 <p className="mt-2 text-sm font-medium text-foreground">Employee presence score {company.employee_presence_score}</p>
                 <p className="mt-1 text-xs text-muted-foreground">Office proof {company.office_proof_verified ? "Verified" : "Not provided"}</p>
+                <p className="mt-1 text-xs text-muted-foreground">LinkedIn {company.linkedin_verified ? "Verified" : "Pending"} · DNS {company.dns_verified ? "Verified" : "Pending"}</p>
               </div>
             </div>
           </div>

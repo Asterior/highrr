@@ -17,6 +17,8 @@ class CompanyAssessmentRequest(BaseModel):
     linkedin_company_url: str | None = None
     employee_count: int = Field(0, ge=0)
     user_reports_penalty: int = Field(0, ge=0, le=30)
+    gst_certificate_url: str | None = None
+    business_proof_url: str | None = None
 
 
 class CompanyTrustResponse(BaseModel):
@@ -59,11 +61,19 @@ class RecruiterVerificationProfileResponse(BaseModel):
     linkedin_company_url: str | None = None
     employee_count: int = 0
     user_reports_penalty: int = 0
+    gst_verified: bool = False
+    email_verified: bool = False
+    website_verified: bool = False
+    linkedin_verified: bool = False
+    dns_verified: bool = False
     verification_level: str
     trust_score: int
     can_post_jobs: bool
     review_status: str
     is_locked: bool
+    kyc_status: str = "pending"
+    gst_certificate_url: str | None = None
+    business_proof_url: str | None = None
     admin_notes: str | None = None
     submitted_at: datetime | None = None
     reviewed_at: datetime | None = None
@@ -86,6 +96,14 @@ class VerificationQueueItemResponse(BaseModel):
     linkedin_company_url: str | None = None
     employee_count: int = 0
     user_reports_penalty: int = 0
+    gst_verified: bool = False
+    email_verified: bool = False
+    website_verified: bool = False
+    linkedin_verified: bool = False
+    dns_verified: bool = False
+    kyc_status: str = "pending"
+    gst_certificate_url: str | None = None
+    business_proof_url: str | None = None
     verification_level: str
     trust_score: int
     reports_count: int

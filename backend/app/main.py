@@ -26,6 +26,7 @@ from app.api.v1.endpoints import jobs
 from app.api.v1.endpoints import messages
 from app.api.v1.endpoints import tests
 from app.api.v1.endpoints import trust
+from app.api.v1.endpoints import websocket
 from app.api.v1.endpoints import users
 from app.core.ollama_client import OllamaClient
 from app.core.constants import ALERT_ENGINE_INTERVAL_HOURS
@@ -200,6 +201,7 @@ app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 app.include_router(candidate_profile_routes.router)
 app.include_router(file_upload.router)
 app.include_router(trust.router, prefix="/trust", tags=["Trust"])
+app.include_router(websocket.router, tags=["WebSockets"])
 app.include_router(tests.router)
 app.include_router(assistant.router)
 app.include_router(api_router)

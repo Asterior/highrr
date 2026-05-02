@@ -17,6 +17,8 @@ const AdminVerificationQueue = () => {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profile, setProfile] = useState<any | null>(null);
   const [badge, setBadge] = useState<any | null>(null);
+  const [badgeRefreshing, setBadgeRefreshing] = useState(false);
+  const [activeRecruiterId, setActiveRecruiterId] = useState<number | null>(null);
   const [reviewForm, setReviewForm] = useState<Record<number, { verification_level: string; trust_score: number; admin_notes: string }>>({});
 
   useEffect(() => {
@@ -57,11 +59,12 @@ const AdminVerificationQueue = () => {
     setProfileLoading(true);
     setProfile(null);
     setBadge(null);
+    setActiveRecruiterId(item.recruiter_id);
 
     try {
       const [profileData, badgeData] = await Promise.all([
         getAdminVerificationProfile(token, item.recruiter_id),
-        getEmployerBadge(item.recruiter_id),
+        getEmployerBadge(item.recruiter_id, true),
       ]);
       setProfile(profileData);
       setBadge(badgeData);
@@ -70,6 +73,18 @@ const AdminVerificationQueue = () => {
       setProfileOpen(false);
     } finally {
       setProfileLoading(false);
+    }
+  };
+
+  const refreshBadge = async () => {
+    if (!activeRecruiterId) return;
+    try {
+      setBadgeRefreshing(true);
+      setBadge(await getEmployerBadge(activeRecruiterId, true));
+    } catch (error: any) {
+      toast({ title: "Badge refresh failed", description: error.message, variant: "destructive" });
+    } finally {
+      setBadgeRefreshing(false);
     }
   };
 
@@ -105,9 +120,11 @@ const AdminVerificationQueue = () => {
 
   const stats = useMemo(() => ({
     total: queue.length,
-    verified: queue.filter((item) => item.verification_level === "verified" || item.verification_level === "trusted").length,
-    basic: queue.filter((item) => item.verification_level === "basic").length,
-    flagged: queue.filter((item) => item.reports_count > 0 || item.trust_score < 55).length,
+    approved: queue.filter((item) => item.review_status === "approved").length,
+    pending: queue.filter((item) => item.review_status === "pending_review").length,
+    rejected: queue.filter((item) => item.review_status === "rejected").length,
+    level2plus: queue.filter((item) => item.verification_level === "strong" || item.verification_level === "trusted").length,
+    avgTrust: queue.length ? Math.round(queue.reduce((sum, item) => sum + Number(item.trust_score || 0), 0) / queue.length) : 0,
   }), [queue]);
 
   if (user.role !== "admin") {
@@ -146,15 +163,18 @@ const AdminVerificationQueue = () => {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               { label: "Total", value: stats.total },
-              { label: "Verified", value: stats.verified },
-              { label: "Basic", value: stats.basic },
-              { label: "Flagged", value: stats.flagged },
+              { label: "Approved", value: stats.approved },
+              { label: "Pending", value: stats.pending },
+              { label: "Level 2+", value: stats.level2plus },
             ].map((stat) => (
               <div key={stat.label} className="rounded-2xl border border-border bg-card p-4 text-center shadow-card">
                 <div className="text-2xl font-bold text-foreground">{stat.value}</div>
                 <div className="text-xs text-muted-foreground">{stat.label}</div>
               </div>
             ))}
+          </div>
+          <div className="mt-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground shadow-card">
+            Average trust score: <span className="font-semibold text-foreground">{stats.avgTrust}/100</span> · Rejected: <span className="font-semibold text-foreground">{stats.rejected}</span>
           </div>
         </div>
       </div>
@@ -164,7 +184,13 @@ const AdminVerificationQueue = () => {
           <div className="rounded-2xl border border-border bg-card p-8 text-center shadow-card text-sm text-muted-foreground">No company verification submissions yet.</div>
         ) : (
           queue.map((item, index) => {
-            const levelClass = item.verification_level === "trusted" ? "bg-emerald-50 text-emerald-700" : item.verification_level === "verified" ? "bg-violet-50 text-violet-700" : "bg-slate-100 text-slate-700";
+            const levelClass = item.verification_level === "trusted"
+              ? "bg-sky-50 text-sky-700"
+              : item.verification_level === "strong"
+                ? "bg-emerald-50 text-emerald-700"
+                : item.verification_level === "basic"
+                  ? "bg-amber-50 text-amber-700"
+                  : "bg-rose-50 text-rose-700";
             const reviewClass = item.review_status === "pending_review" ? "border-violet-300 bg-violet-50/35" : item.review_status === "rejected" ? "border-rose-200 bg-rose-50/25" : "border-border bg-card";
             return (
               <motion.div key={item.recruiter_id} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }} className={`rounded-[1.5rem] border p-6 shadow-card ${reviewClass}`}>
@@ -172,7 +198,7 @@ const AdminVerificationQueue = () => {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-xl font-semibold text-foreground">{item.company_name}</h2>
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${levelClass}`}>{item.verification_level}</span>
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${levelClass}`}>{item.verification_level || "unverified"}</span>
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">{item.recruiter_name} · {item.recruiter_email}</p>
                     <p className="mt-2 text-sm text-muted-foreground">Domain: {item.company_domain || "Not shared"}</p>
@@ -261,7 +287,7 @@ const AdminVerificationQueue = () => {
                           className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
                         >
                           <option value="basic">Basic</option>
-                          <option value="verified">Verified</option>
+                          <option value="strong">Strong</option>
                           <option value="trusted">Trusted</option>
                         </select>
                       </div>
@@ -372,7 +398,16 @@ const AdminVerificationQueue = () => {
               </div>
 
               <div className="rounded-2xl border border-border bg-muted/20 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Automated employer check</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Automated employer check</p>
+                  <button
+                    onClick={refreshBadge}
+                    disabled={badgeRefreshing}
+                    className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-60"
+                  >
+                    {badgeRefreshing ? "Rechecking..." : "Recheck"}
+                  </button>
+                </div>
                 {badge ? (
                   <div className="mt-3 grid gap-3 md:grid-cols-4 text-sm">
                     <div className="rounded-xl bg-background p-3">Badge: <span className="font-semibold capitalize">{badge.badge_level}</span></div>
@@ -383,6 +418,25 @@ const AdminVerificationQueue = () => {
                 ) : (
                   <p className="mt-3 text-sm text-muted-foreground">No automated check record found yet.</p>
                 )}
+              </div>
+
+              <div className="rounded-2xl border border-border bg-muted/20 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Expanded verification checks</p>
+                <div className="mt-3 grid gap-2 md:grid-cols-3 text-sm">
+                  {[
+                    { label: "GST verified", ok: profile.gst_verified },
+                    { label: "Email verified", ok: profile.email_verified },
+                    { label: "Website verified", ok: profile.website_verified },
+                    { label: "LinkedIn verified", ok: profile.linkedin_verified },
+                    { label: "DNS verified", ok: profile.dns_verified },
+                    { label: "KYC status", ok: profile.kyc_status === "approved" },
+                  ].map((check) => (
+                    <div key={check.label} className="flex items-center gap-2 rounded-xl bg-background px-3 py-2">
+                      {check.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <XCircle className="h-4 w-4 text-rose-500" />}
+                      <span>{check.label}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="rounded-2xl border border-border bg-muted/20 p-4 text-sm text-muted-foreground">

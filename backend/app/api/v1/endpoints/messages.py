@@ -1,10 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timezone
+
+from anyio import from_thread
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.api.v1.endpoints.websocket import notify_message_sent
 from app.db.deps import get_db
 from app.models.conversation import Conversation
 from app.models.message import Message
@@ -33,6 +36,26 @@ SUSPICIOUS_KEYWORDS = [
 ]
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _serialize_message(message: Message) -> dict:
+    return {
+        "id": message.id,
+        "conversation_id": message.conversation_id,
+        "sender_id": message.sender_id,
+        "receiver_id": message.receiver_id,
+        "message": message.message,
+        "sent_at": _as_utc(message.sent_at),
+        "is_read": message.is_read,
+    }
+
+
 def _is_suspicious_message(content: str) -> bool:
     lowered = content.lower()
     return any(keyword in lowered for keyword in SUSPICIOUS_KEYWORDS)
@@ -59,9 +82,9 @@ def _serialize_conversation(conv: Conversation, current_user: User, db: Session)
         "participant_name": participant.name if participant else f"User {participant_id}",
         "participant_role": participant.role if participant else None,
         "unread_count": unread_count,
-        "created_at": conv.created_at,
+        "created_at": _as_utc(conv.created_at),
         "last_message": conv.last_message,
-        "last_message_time": conv.last_message_time,
+        "last_message_time": _as_utc(conv.last_message_time),
     }
 
 
@@ -138,12 +161,14 @@ def get_conversation_messages(
     if current_user.id not in [conv.participant_one_id, conv.participant_two_id]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    return (
+    return [
+        _serialize_message(message)
+        for message in (
         db.query(Message)
         .filter(Message.conversation_id == conversation_id)
         .order_by(Message.sent_at.asc())
         .all()
-    )
+    )]
 
 
 @router.post("/conversations/{conversation_id}/messages", response_model=MessageResponse)
@@ -178,7 +203,7 @@ def send_message(
     )
 
     conv.last_message = payload.message
-    conv.last_message_time = datetime.utcnow()
+    conv.last_message_time = datetime.now(timezone.utc)
 
     db.add(msg)
 
@@ -194,7 +219,24 @@ def send_message(
 
     db.commit()
     db.refresh(msg)
-    return msg
+
+    try:
+        from_thread.run(
+            notify_message_sent,
+            conversation_id,
+            {
+                "id": msg.id,
+                "conversation_id": msg.conversation_id,
+                "sender_id": msg.sender_id,
+                "receiver_id": msg.receiver_id,
+                "message": msg.message,
+                "sent_at": _as_utc(msg.sent_at).isoformat() if _as_utc(msg.sent_at) else None,
+                "is_read": msg.is_read,
+            },
+        )
+    except Exception:
+        pass
+    return _serialize_message(msg)
 
 
 @router.put("/messages/{message_id}/read")
